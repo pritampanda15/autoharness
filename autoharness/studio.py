@@ -322,7 +322,7 @@ def run_immediate_autofix(
     cases = load_cases(case_dirs) if case_dirs else []
 
     current_summary = prev_summary
-    if cases and (healed_records or current_summary is None):
+    if cases and (healed_records or current_summary is None or used_scripted):
         if agent_factory is None and (used_scripted or current_summary is None):
             current_summary = run_suite(
                 cfg, cases, ScriptedAgent(tree=tree), None, store,

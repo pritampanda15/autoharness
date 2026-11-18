@@ -13,9 +13,13 @@
 </p>
 
 <p align="center">
-  <a href="#install">
-    <img src="assets/autoharness-terminal.svg" alt="Install, run the offline code-healing and Propose-Probe-Compose demo, and launch the continuous watch loop." width="680">
-  </a>
+  <video src="assets/Autoharness.mp4" poster="assets/autoharness-poster.jpg" controls playsinline width="900">
+    <a href="https://github.com/pritampanda15/autoharness/raw/main/assets/Autoharness.mp4">
+      <img src="assets/autoharness-walkthrough.gif" alt="AutoHarness 72s Step-by-Step Walkthrough: Init, Subscriptions ($0 API), MCP Plugin, Liquid Glass Studio, and 1-Click Auto-Fix" width="900">
+    </a>
+  </video>
+  <br>
+  <a href="https://github.com/pritampanda15/autoharness/raw/main/assets/Autoharness.mp4"><img src="https://img.shields.io/badge/%E2%96%B6%20Watch%20Full%201080p%20Walkthrough%20(72s%20%C2%B7%20Audio)-Autoharness.mp4-007AFF" alt="Watch Full 1080p Walkthrough Video"></a>
 </p>
 
 A **harness** is the software system around a model that enables it to act as a reliable agent: prompts, guardrails, memory, skills, tool guidance, scripts, subagents, and runtime middleware. **Harness engineering** is the discipline of designing, evaluating, and optimizing that system.

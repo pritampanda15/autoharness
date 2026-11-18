@@ -451,3 +451,8 @@ def test_subscription_isolation_mcp_server_and_universal_plugin_installer(tmp_pa
     bad_payload = json.loads(bad_verify["result"]["content"][0]["text"])
     assert bad_payload["verified"] is False
     assert "ANTI-GAMING BLOCK" in bad_payload["reason"]
+
+    # 4. Sandbox.run always prepends sys.executable's bin dir so `python3 -m pytest` never hits stub /usr/bin/python3
+    with Sandbox(case, 2) as sb2:
+        r_py = sb2.run("python3 -m pytest --version", env={"PATH": "/usr/bin:/bin"})
+        assert r_py.returncode == 0 and "pytest" in r_py.stdout.lower()

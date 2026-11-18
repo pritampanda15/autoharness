@@ -179,7 +179,7 @@ def static_guard(cfg: Config, all_cases: list[Case], files: dict[str, str], prop
         old = files[path]
         if new == old:
             reasons.append(f"{path} unchanged")
-        if len(new) > len(old) * (1 + cfg["fixer"]["max_growth_pct"] / 100) + 200:
+        if len(new) > len(old) * (1 + cfg["fixer"]["max_growth_pct"] / 100) + 1000:
             reasons.append(f"{path} grew from {len(old)} to {len(new)} chars")
         leaks = leaked_terms(all_cases, old, new)
         if leaks:

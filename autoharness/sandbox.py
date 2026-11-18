@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
@@ -46,14 +47,16 @@ class Sandbox:
         env: dict[str, str] | None = None,
         unset_env: tuple[str, ...] | list[str] = (),
     ) -> subprocess.CompletedProcess:
-        if env or unset_env:
-            full_env = dict(os.environ)
-            for k in unset_env:
-                full_env.pop(k, None)
-            if env:
-                full_env.update(env)
-        else:
-            full_env = None
+        full_env = dict(os.environ)
+        for k in unset_env:
+            full_env.pop(k, None)
+        if env:
+            full_env.update(env)
+        # Prepend the active Python interpreter's bin dir so `python3`, `python`, and `pytest`
+        # inside trial sandboxes always match the environment running AutoHarness (not macOS stub `/usr/bin/python3`).
+        py_bin = str(Path(os.path.abspath(sys.executable)).parent)
+        path_parts = [p for p in full_env.get("PATH", "").split(os.pathsep) if p and p != py_bin]
+        full_env["PATH"] = os.pathsep.join([py_bin, *path_parts])
         try:
             return subprocess.run(
                 cmd, shell=True, cwd=self.dir, capture_output=True, text=True, timeout=timeout, env=full_env
