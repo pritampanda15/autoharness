@@ -1,5 +1,5 @@
 <h3 align="center">
-  <img src="assets/autoharness-wordmark.svg" alt="AutoHarness²" width="400"><br>
+  <img src="assets/autoharness-wordmark.svg" alt="AutoHarness" width="400"><br>
   Autonomous Agent Harnessing &amp; Continuous Self-Healing Loop
 </h3>
 
