@@ -37,14 +37,14 @@ AutoHarness works across **any AI model or billing setup**:
 - **Flat-rate AI subscriptions (`$0.00` pay-per-token API cost):** Claude Pro / Max / Team (`claude`), ChatGPT Plus / Pro / Team (`codex`), Google AI Pro / Ultra (`gemini`), and GitHub Copilot Pro (`copilot`) — with automatic API-key isolation so CLI runs never trigger metered API charges.
 - **100% local & self-hosted open-source models (`$0.00`):** Ollama (`qwen2.5-coder`, `deepseek-r1`, `llama3.3`, `gemma3`), vLLM, LM Studio, `llama.cpp`, and OpenRouter.
 - **MCP Agent Server & 1-Click Universal Plugin:** Install into **Google Antigravity**, **Claude Code / Desktop**, **Cursor**, **VS Code Copilot**, **Gemini CLI**, **OpenAI Codex CLI**, **Windsurf**, **Cline**, or **Zed** so your host AI assistant drives write-locked repairs using its own active session.
-- **Apple Liquid Glass Studio & One-Click `Auto-Fix`:** Interactive visual workbench (`autoharness studio`) with 60fps telemetry motion graphics, an orbiting 3D 8-component Harness² topology, and instant one-click repair on any failing test or module.
+- **AutoHarness Studio & One-Click `Auto-Fix`:** Interactive visual workbench (`autoharness studio`) with 60fps telemetry motion graphics, an orbiting 3D 8-component Harness² topology, and instant one-click repair on any failing test or module.
 
 ## Contents
 
 - [Harness components](#harness-components)
 - [Install](#install)
 - [Continuous self-healing loop](#continuous-self-healing-loop)
-- [Apple Liquid Glass Studio & One-Click Auto-Fix](#apple-liquid-glass-studio--one-click-auto-fix)
+- [AutoHarness Studio & One-Click Auto-Fix](#AutoHarness-studio--one-click-auto-fix)
 - [Flat-rate subscriptions (`$0` API) & open-source models](#flat-rate-subscriptions-0-api--open-source-models)
 - [MCP Agent Server & universal plugin installation](#mcp-agent-server--universal-plugin-installation)
 - [Experiments and recursion modes](#experiments-and-recursion-modes)
@@ -96,7 +96,7 @@ Initialize or onboard any existing repository, synthesize evaluation cases from 
 autoharness init my-project && cd my-project
 autoharness synthesize src/             # auto-generate dev + hidden holdout YAML cases from Python modules
 autoharness run --autonomous --open     # run 3-layer suite & establish regression baseline
-autoharness studio                      # launch the Apple Liquid Glass Studio + 1-Click Auto-Fix
+autoharness studio                      # launch the autoharness Studio + 1-Click Auto-Fix
 autoharness watch --now                 # continuous loop: heal -> run -> gate -> contrastive fix
 ```
 
@@ -112,7 +112,7 @@ autoharness hook install --kind pre-commit
 
 | Workflow | Command | Highlights |
 |---|---|---|
-| Apple Liquid Glass Studio | `autoharness studio [--port 8484] [--export studio.html]` | 60fps telemetry, 3D Harness² sphere, 1-click `Auto-Fix`, Model & MCP Hub |
+| Autoharness Studio | `autoharness studio [--port 8484] [--export studio.html]` | 60fps telemetry, 3D Harness² sphere, 1-click `Auto-Fix`, Model & MCP Hub |
 | Universal Model & Sub Switcher | `autoharness models [--use PRESET]` | Subscriptions (`$0` API), Codex, Gemini, Copilot, Ollama, vLLM, Claude |
 | MCP Agent Server | `autoharness mcp [--root DIR]` | Zero-dependency JSON-RPC 2.0 stdio server with 9 tools & 2 resources |
 | Universal Plugin Installer | `autoharness plugin {install,status} [--target TARGET]` | Antigravity, Claude Code, Cursor, VS Code Copilot, Gemini CLI, Codex CLI |
@@ -123,7 +123,7 @@ autoharness hook install --kind pre-commit
 
 `ah` is installed as a short alias for `autoharness`.
 
-## Apple Liquid Glass Studio & One-Click `Auto-Fix`
+## AutoHarness Studio & One-Click `Auto-Fix`
 
 Launch `autoharness studio` (or export a standalone zero-CDN snapshot via `autoharness studio --export studio.html`) to inspect and control the entire closed loop visually:
 
@@ -262,7 +262,7 @@ Shell commands inside trials run in temporary directories with your OS user perm
 
 ## Results, reports, and calibration
 
-Artifacts are stored under `runs/`, including `BASELINE`, `fixlog.md` (with unified diffs for every accepted and rejected candidate), per-trial JSON traces, baseline diffs (`diff.json`), and self-contained Apple Liquid Glass HTML reports (`autoharness report --open`) featuring inline `Auto-Fix`.
+Artifacts are stored under `runs/`, including `BASELINE`, `fixlog.md` (with unified diffs for every accepted and rejected candidate), per-trial JSON traces, baseline diffs (`diff.json`), and self-contained HTML reports (`autoharness report --open`) featuring inline `Auto-Fix`.
 
 Inspect learned priors anytime with `autoharness lessons`, compare runs with `autoharness diff`, or explore all flags via `autoharness <cmd> --help`.
 
