@@ -313,3 +313,59 @@ def test_studio_immediate_autofix_repairs_failing_test_and_module(tmp_path):
     assert len(res["healed_modules"]) == 1
     assert "x * 2" in (tmp_path / "pkg" / "calc.py").read_text()
     assert (tmp_path / "tests" / "test_calc.py").read_text() == locked_test
+
+
+def test_universal_model_substrates_and_oss_tool_calls(tmp_path):
+    from autoharness.agents import (
+        AutoRouterAgent,
+        CodexAgent,
+        GeminiCliAgent,
+        OllamaAgent,
+        OpenAIAgent,
+        _extract_oss_tool_calls,
+        _parse_codex_jsonl,
+        build_agent,
+    )
+    from autoharness.providers import extract_json_object
+    from autoharness.trace import Trace
+
+    # 1. All universal substrate types build cleanly
+    for kind, cls in [
+        ("codex", CodexAgent),
+        ("gemini-cli", GeminiCliAgent),
+        ("ollama", OllamaAgent),
+        ("opensource", OllamaAgent),
+        ("vllm", OpenAIAgent),
+        ("lmstudio", OpenAIAgent),
+        ("openrouter", OpenAIAgent),
+        ("auto", AutoRouterAgent),
+    ]:
+        ag = build_agent({"type": kind, "model": "qwen2.5-coder:14b"}, tmp_path)
+        assert isinstance(ag, cls)
+
+    # 2. Open-source `<think>` + `<tool_call>` JSON extraction (DeepSeek-R1 / Qwen / Llama)
+    oss_raw = '<think>Check file first</think>\n<tool_call>{"name": "read_file", "arguments": {"path": "app.py"}}</tool_call>'
+    assert _extract_oss_tool_calls(oss_raw) == [("read_file", {"path": "app.py"})]
+    assert extract_json_object('<think>reasoning</think>\n```json\n{"verdict": "pass", "score": 1.0}\n```') == {
+        "verdict": "pass",
+        "score": 1.0,
+    }
+
+    # 3. Codex JSONL trace parser
+    tr = Trace(case_id="c1", trial=1, workdir=str(tmp_path))
+    codex_out = (
+        '{"type":"item.completed","item":{"type":"command_execution","command":"pytest -q","aggregated_output":"2 passed","exit_code":0}}\n'
+        '{"type":"item.completed","item":{"type":"agent_message","text":"All tests pass."}}\n'
+    )
+    _parse_codex_jsonl(codex_out, tr)
+    assert tr.final_output == "All tests pass."
+    assert len(tr.tool_calls) == 1 and tr.tool_calls[0].name == "run_bash"
+
+    # 4. CLI `autoharness models --use` switches autoharness.yaml across Codex, Gemini, Ollama & Auto
+    cfg_file = tmp_path / "autoharness.yaml"
+    cfg_file.write_text("cases: [cases]\n")
+    assert cli.main(["--config", str(cfg_file), "models", "--use", "ollama-qwen", "--model", "deepseek-r1:14b"]) == 0
+    reloaded = load_config(cfg_file)
+    assert reloaded["agent"]["type"] == "ollama"
+    assert reloaded["agent"]["model"] == "deepseek-r1:14b"
+    assert reloaded["fixer"]["backend"] == "ollama"

@@ -42,7 +42,11 @@ from .store import Store
 from .synthesizer import scan_codebase, synthesize_cases
 from .tree import HarnessTree
 
-AGENT_CHOICES = ["claude", "gemini", "openai", "command", "scripted"]
+AGENT_CHOICES = [
+    "claude", "codex", "gemini", "gemini-cli",
+    "ollama", "vllm", "lmstudio", "openrouter", "opensource",
+    "openai", "auto", "command", "scripted",
+]
 
 
 def _ctx(args):
@@ -470,6 +474,33 @@ def cmd_lessons(args) -> int:
     return 0
 
 
+def cmd_models(args) -> int:
+    from .providers import apply_substrate_selection, discover_providers
+
+    if args.use:
+        cfg, _ = _ctx(args)
+        preset = apply_substrate_selection(cfg, args.use, custom_model=args.model, custom_base_url=args.base_url)
+        print(
+            f"switched substrate -> {preset['label']} "
+            f"(agent={cfg['agent']['type']}, model={cfg['agent'].get('model')}, fixer={cfg['fixer'].get('backend')})"
+        )
+        return 0
+
+    info = discover_providers()
+    print("Detected CLIs & API Keys:")
+    for k, ok in info["clis"].items():
+        print(f"  CLI  {k:<10} {'installed (' + info['cli_paths'][k] + ')' if ok else 'not found'}")
+    for k, ok in info["api_keys"].items():
+        print(f"  KEY  {k:<10} {'configured' if ok else 'not set'}")
+    for srv, meta in info["local_servers"].items():
+        status = f"ONLINE ({', '.join(meta['models'][:4]) or 'ready'})" if meta["online"] else "offline"
+        print(f"  OSS  {srv:<10} {status} [{meta['url']}]")
+    print("\nAvailable Substrate Presets (`autoharness models --use <id>`):")
+    for p in info["presets"]:
+        print(f"  {p['id']:<16} {p['label']:<38} [{p['badge']}]")
+    return 0
+
+
 def cmd_studio(args) -> int:
     from .studio import render_studio_html, serve_studio
 
@@ -605,6 +636,12 @@ def main(argv: list[str] | None = None) -> int:
 
     ls = sub.add_parser("lessons", help="show the lessons the fixer has learned")
     ls.set_defaults(fn=cmd_lessons)
+
+    md = sub.add_parser("models", help="inspect or switch AI substrates (Codex, Gemini, Claude, Ollama, vLLM, OpenRouter)")
+    md.add_argument("--use", metavar="PRESET", help="switch autoharness.yaml to a substrate preset (e.g. codex, gemini, ollama-qwen, vllm-local, auto)")
+    md.add_argument("--model", help="custom model ID (e.g. deepseek-r1:32b, qwen2.5-coder:32b, gpt-5-codex)")
+    md.add_argument("--base-url", help="custom OpenAI/Ollama base URL (e.g. http://127.0.0.1:11434)")
+    md.set_defaults(fn=cmd_models)
 
     st = sub.add_parser("studio", help="launch the Apple-designed interactive AutoHarness Studio UI")
     st.add_argument("--host", default="127.0.0.1")

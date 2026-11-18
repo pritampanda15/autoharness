@@ -225,12 +225,30 @@ class Fixer:
 
     def _call(self, prompt: str, schema: dict, system: str) -> tuple[dict, float, str | None]:
         backend = self.cfg.get("backend", "claude-cli")
-        if self._client is None and backend == "claude-cli":
-            return self._cli(prompt, schema, system)
-        if self._client is None and backend == "gemini":
-            return self._gemini(prompt, schema, system)
-        if self._client is None and backend == "openai":
-            return self._openai(prompt, schema, system)
+        if self._client is not None:
+            return self._api(prompt, schema, system)
+        if backend in ("codex-cli", "gemini-cli", "ollama", "vllm", "lmstudio", "openrouter", "opensource", "auto"):
+            from .providers import complete_structured
+
+            return complete_structured(backend, self.cfg, prompt, schema, system)
+        if backend == "claude-cli":
+            res = self._cli(prompt, schema, system)
+            if res[2]:
+                from .providers import complete_structured, is_rate_limit_or_quota
+
+                if is_rate_limit_or_quota(res[2]):
+                    alt_data, alt_cost, alt_err = complete_structured("auto", self.cfg, prompt, schema, system)
+                    if not alt_err and alt_data:
+                        return alt_data, alt_cost, None
+            return res
+        if backend == "gemini":
+            from .providers import complete_structured
+
+            return complete_structured("gemini", self.cfg, prompt, schema, system)
+        if backend == "openai":
+            from .providers import complete_structured
+
+            return complete_structured("openai", self.cfg, prompt, schema, system)
         return self._api(prompt, schema, system)
 
     def _cli(self, prompt: str, schema: dict, system: str) -> tuple[dict, float, str | None]:

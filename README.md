@@ -109,8 +109,24 @@ autoharness hook install --kind pre-commit
 | Code Self-Healing | `autoharness heal [PATHS...] [--changed]` | [Architecture](docs/ARCHITECTURE.md) |
 | Auto-Case Synthesis | `autoharness synthesize [PATHS...]` | [Writing Cases](docs/CASES.md) |
 | Session Failure Mining | `autoharness mine` / `autoharness auto` | [Writing Cases](docs/CASES.md) |
+| Liquid Glass Studio UI | `autoharness studio` | One-click `Auto-Fix`, 3D Harness² sphere & live model switcher |
+| Universal Model Switcher | `autoharness models [--use PRESET]` | Codex, Gemini, Ollama, vLLM, LM Studio, OpenRouter & Claude |
 
 `ah` is installed as a short alias for `autoharness`.
+
+## Universal AI substrates (Codex, Gemini, Open-Source & Claude)
+
+AutoHarness is **100% model-agnostic** across evaluation, code self-healing, contrastive harness fixing, and rubric judging:
+
+| Substrate | CLI / Endpoint | Example Command |
+|---|---|---|
+| **OpenAI Codex** | `codex exec --full-auto --json` or `OPENAI_API_KEY` | `autoharness models --use codex` |
+| **Google Gemini** | `gemini -p` CLI or `GEMINI_API_KEY` | `autoharness models --use gemini` |
+| **Ollama (Local Open-Source)** | `http://127.0.0.1:11434` (`qwen2.5-coder`, `deepseek-r1`, `llama3.3`, `gemma3`) | `autoharness models --use ollama-qwen --model qwen2.5-coder:32b` |
+| **vLLM / LM Studio / llama.cpp** | OpenAI-compatible local server (`:8000/v1`, `:1234/v1`) | `autoharness models --use vllm-local --base-url http://127.0.0.1:8000/v1` |
+| **OpenRouter OSS** | `OPENROUTER_API_KEY` (`qwen3-coder`, `deepseek-chat-v3`, `llama-4`) | `autoharness models --use openrouter-oss` |
+| **Claude Code** | `claude -p` CLI or `ANTHROPIC_API_KEY` | `autoharness models --use claude` |
+| **Auto-Failover Router** | Automatically routes around missing keys or CLI rate limits | `autoharness models --use auto` |
 
 ## Experiments and recursion modes
 
@@ -129,7 +145,7 @@ Scale task-level harness optimization across two complementary dimensions: **par
 | `fixer.parallel: K` | Evaluate candidate probes concurrently in isolated temporary workspaces |
 | `fixer.compose: true` | Synthesize one merged candidate from measured per-case probe contrasts |
 | `fixer.max_iters: N` | Run up to `N` sequential Propose–Probe–Compose steps (`--max-iters N`) |
-| `--agent {claude,gemini,openai,command,scripted}` | Select execution substrate on any `run`, `heal`, or `auto` invocation |
+| `--agent {auto,codex,gemini,ollama,vllm,openrouter,openai,claude,command,scripted}` | Select execution substrate on any `run`, `heal`, or `auto` invocation |
 
 ## Layered grading and autonomous certification
 

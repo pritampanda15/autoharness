@@ -92,8 +92,19 @@ class Judge:
 
     def _one(self, prompt: str) -> dict[str, Any]:
         # An injected client (tests, custom transports) always wins over the configured backend.
-        if self._client is None and self.cfg.get("backend", "api") == "claude-cli":
+        backend = self.cfg.get("backend", "api")
+        if self._client is None and backend == "claude-cli":
             return self._one_cli(prompt)
+        if self._client is None and backend in (
+            "codex-cli", "gemini", "gemini-cli", "ollama", "vllm", "lmstudio", "openrouter", "opensource", "openai", "auto"
+        ):
+            from ..providers import complete_structured
+
+            data, cost, err = complete_structured(backend, self.cfg, prompt, VERDICT_SCHEMA, JUDGE_SYSTEM)
+            if err or not isinstance(data, dict):
+                return {"error": err or "judge returned empty output", "_cost": cost}
+            data["_cost"] = cost
+            return data
         import anthropic
 
         try:

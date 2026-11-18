@@ -327,6 +327,11 @@ def autofix(cfg: Config, store: Store, base: dict[str, Any], *, fixer: Fixer | N
         # 1. PROPOSE: K diverse candidates in one call
         props = fixer.propose(files, failures, passing, history, lessons, k=k)
         spent += sum(p.cost_usd for p in props)
+        if len(props) == 1 and props[0].error and not props[0].edits:
+            say(f"  fixer unavailable: {props[0].error}")
+            out.status = "error"
+            out.message = props[0].error
+            break
         if props and props[0].diagnosis:
             say(f"  diagnosis: {props[0].diagnosis[:300]}")
 

@@ -228,7 +228,11 @@ class GeminiAgent:
         mw_state = MiddlewareState()
         trace = Trace(case_id=case.id, trial=trial, workdir=str(sandbox.dir))
         if not self.api_key:
-            trace.error = "missing GEMINI_API_KEY / GOOGLE_API_KEY"
+            from .providers import find_cli
+
+            if find_cli("gemini"):
+                return GeminiCliAgent(self.cfg, self.system_prompt, tree=self.tree).run(case, sandbox, trial)
+            trace.error = "missing GEMINI_API_KEY / GOOGLE_API_KEY (and gemini CLI not found)"
             return trace
 
         model = self.cfg.get("model", "gemini-2.5-pro")
@@ -293,14 +297,28 @@ class GeminiAgent:
 
 
 class OpenAIAgent:
-    """OpenAI / OpenRouter / Ollama `/v1/chat/completions` tool-use substrate."""
+    """OpenAI / vLLM / LM Studio / OpenRouter `/v1/chat/completions` tool-use substrate."""
+
+    DEFAULT_URLS = {
+        "openai": "https://api.openai.com/v1",
+        "vllm": "http://127.0.0.1:8000/v1",
+        "lmstudio": "http://127.0.0.1:1234/v1",
+        "openrouter": "https://openrouter.ai/api/v1",
+    }
 
     def __init__(self, cfg: dict[str, Any], system_prompt: str, tree: HarnessTree | None = None):
         self.cfg = cfg
         self.system_prompt = system_prompt
         self.tree = tree
-        self.api_key = cfg.get("api_key") or os.environ.get("OPENAI_API_KEY") or "local"
-        self.base_url = (cfg.get("base_url") or os.environ.get("OPENAI_BASE_URL") or "https://api.openai.com/v1").rstrip("/")
+        kind = cfg.get("type", "openai")
+        self.api_key = (
+            cfg.get("api_key")
+            or (os.environ.get("OPENROUTER_API_KEY") if kind == "openrouter" else None)
+            or os.environ.get("OPENAI_API_KEY")
+            or "local-oss"
+        )
+        default_url = self.DEFAULT_URLS.get(kind, "https://api.openai.com/v1")
+        self.base_url = (cfg.get("base_url") or os.environ.get("OPENAI_BASE_URL") or default_url).rstrip("/")
 
     def run(self, case: Case, sandbox: Sandbox, trial: int) -> Trace:
         if self.tree:
@@ -334,8 +352,18 @@ class OpenAIAgent:
                 msg = choice.get("message") or {}
                 messages.append(msg)
                 if msg.get("content"):
-                    trace.final_output = msg["content"]
+                    trace.final_output = _strip_think(msg["content"])
                 tcalls = msg.get("tool_calls") or []
+                if not tcalls and msg.get("content"):
+                    oss_calls = _extract_oss_tool_calls(msg["content"])
+                    if oss_calls:
+                        for fname, fargs in oss_calls:
+                            out, err = execute_tool(
+                                sandbox, fname, fargs, self.cfg.get("bash_timeout_s", 60), tree=self.tree, mw_state=mw_state
+                            )
+                            trace.tool_calls.append(ToolCall(fname, dict(fargs), out, err))
+                            messages.append({"role": "user", "content": f"<tool_response name=\"{fname}\">\n{out}\n</tool_response>"})
+                        continue
                 if not tcalls:
                     trace.stop_reason = choice.get("finish_reason", "stop")
                     break
@@ -501,6 +529,294 @@ class ScriptedAgent:
         return trace
 
 
+# --------------------------------------------------------------------------- Open-Source Ollama, Codex CLI, Gemini CLI & Auto-Failover
+
+
+OSS_TOOL_GUIDE = """
+If your runtime does not emit native tool_calls, you may invoke tools by outputting:
+<tool_call>{"name": "read_file", "arguments": {"path": "example.py"}}</tool_call>
+Available tools: read_file(path), write_file(path, content), list_files(path?), run_bash(command).
+"""
+
+
+def _strip_think(text: str) -> str:
+    import re
+
+    return re.sub(r"<think>.*?</think>", "", text or "", flags=re.DOTALL).strip()
+
+
+def _extract_oss_tool_calls(text: str) -> list[tuple[str, dict[str, Any]]]:
+    import re
+
+    calls: list[tuple[str, dict[str, Any]]] = []
+    for m in re.finditer(r"<tool_call>\s*(\{.*?\})\s*</tool_call>", text or "", flags=re.DOTALL):
+        try:
+            obj = json.loads(m.group(1))
+            name = obj.get("name") or obj.get("tool")
+            args = obj.get("arguments") or obj.get("input") or {}
+            if isinstance(name, str) and isinstance(args, dict):
+                calls.append((name, args))
+        except json.JSONDecodeError:
+            continue
+    return calls
+
+
+class OllamaAgent:
+    """Native local/remote Ollama open-source substrate (Qwen2.5-Coder, DeepSeek-R1, Llama 3.3, Gemma 3, Devstral)."""
+
+    def __init__(self, cfg: dict[str, Any], system_prompt: str, tree: HarnessTree | None = None):
+        self.cfg = cfg
+        self.system_prompt = (system_prompt + "\n\n" + OSS_TOOL_GUIDE).strip()
+        self.tree = tree
+        base = (cfg.get("base_url") or os.environ.get("OLLAMA_HOST") or "http://127.0.0.1:11434").rstrip("/")
+        self.base_url = base[:-3] if base.endswith("/v1") else base
+
+    def run(self, case: Case, sandbox: Sandbox, trial: int) -> Trace:
+        if self.tree:
+            self.tree.stage_into_sandbox(sandbox)
+        mw_state = MiddlewareState()
+        trace = Trace(case_id=case.id, trial=trial, workdir=str(sandbox.dir))
+        model = self.cfg.get("model") or "qwen2.5-coder:14b"
+        tools = [
+            {"type": "function", "function": {"name": t["name"], "description": t["description"], "parameters": t["input_schema"]}}
+            for t in TOOL_DEFS
+        ]
+        messages: list[dict[str, Any]] = [
+            {"role": "system", "content": self.system_prompt},
+            {"role": "user", "content": case.prompt},
+        ]
+        use_native_tools = True
+        start = time.time()
+        try:
+            for _ in range(self.cfg.get("max_turns", 20)):
+                payload: dict[str, Any] = {"model": model, "stream": False, "messages": messages}
+                if use_native_tools:
+                    payload["tools"] = tools
+                req = urllib.request.Request(
+                    f"{self.base_url}/api/chat",
+                    data=json.dumps(payload).encode(),
+                    headers={"Content-Type": "application/json"},
+                )
+                try:
+                    with urllib.request.urlopen(req, timeout=180) as resp:
+                        data = json.loads(resp.read().decode())
+                except urllib.error.HTTPError as e:
+                    err_body = e.read().decode(errors="replace")
+                    if use_native_tools and "does not support tools" in err_body.lower():
+                        use_native_tools = False
+                        continue
+                    trace.error = f"Ollama HTTP {e.code}: {err_body[:400]}"
+                    break
+                trace.turns += 1
+                trace.input_tokens += int(data.get("prompt_eval_count", 0))
+                trace.output_tokens += int(data.get("eval_count", 0))
+                msg = data.get("message") or {}
+                messages.append(msg)
+                content = msg.get("content") or ""
+                if content:
+                    trace.final_output = _strip_think(content)
+
+                tcalls = msg.get("tool_calls") or []
+                parsed_calls: list[tuple[str, dict[str, Any]]] = []
+                for tc in tcalls:
+                    fn = tc.get("function") or {}
+                    fname = fn.get("name", "")
+                    fargs = fn.get("arguments") or {}
+                    if isinstance(fargs, str):
+                        try:
+                            fargs = json.loads(fargs)
+                        except json.JSONDecodeError:
+                            fargs = {}
+                    if fname:
+                        parsed_calls.append((fname, fargs))
+                if not parsed_calls and content:
+                    parsed_calls = _extract_oss_tool_calls(content)
+
+                if not parsed_calls:
+                    trace.stop_reason = "stop"
+                    break
+                for fname, fargs in parsed_calls:
+                    out, err = execute_tool(
+                        sandbox, fname, fargs, self.cfg.get("bash_timeout_s", 60), tree=self.tree, mw_state=mw_state
+                    )
+                    trace.tool_calls.append(ToolCall(fname, dict(fargs), out, err))
+                    if use_native_tools and tcalls:
+                        messages.append({"role": "tool", "content": out})
+                    else:
+                        messages.append({"role": "user", "content": f"<tool_response name=\"{fname}\">\n{out}\n</tool_response>"})
+            else:
+                trace.error = f"hit max_turns={self.cfg.get('max_turns', 20)}"
+        except Exception as e:
+            trace.error = f"Ollama ({self.base_url}) error: {type(e).__name__}: {e}"
+        trace.duration_s = round(time.time() - start, 2)
+        return trace
+
+
+class CodexAgent:
+    """OpenAI Codex CLI (`codex exec --full-auto --json`) with automatic OpenAI API fallback."""
+
+    def __init__(self, cfg: dict[str, Any], system_prompt: str, tree: HarnessTree | None = None):
+        self.cfg = cfg
+        self.system_prompt = system_prompt
+        self.tree = tree
+
+    def run(self, case: Case, sandbox: Sandbox, trial: int) -> Trace:
+        from .providers import find_cli
+
+        bin_path = find_cli("codex", self.cfg.get("cli"))
+        if not bin_path:
+            if os.environ.get("OPENAI_API_KEY") or self.cfg.get("api_key"):
+                fallback_cfg = {**self.cfg, "type": "openai", "model": self.cfg.get("model", "gpt-4.1")}
+                return OpenAIAgent(fallback_cfg, self.system_prompt, tree=self.tree).run(case, sandbox, trial)
+            return Trace(case_id=case.id, trial=trial, workdir=str(sandbox.dir), error="codex CLI not installed and OPENAI_API_KEY not set")
+
+        if self.tree:
+            self.tree.stage_into_sandbox(sandbox)
+        trace = Trace(case_id=case.id, trial=trial, workdir=str(sandbox.dir))
+        full_prompt = f"{self.system_prompt}\n\nTask:\n{case.prompt}".strip() if self.system_prompt else case.prompt
+        model_arg = f"-m {shlex.quote(str(self.cfg['model']))}" if self.cfg.get("model") and self.cfg["model"] not in ("auto", "opus", "sonnet") else ""
+        cmd = f"{shlex.quote(bin_path)} exec --full-auto --skip-git-repo-check --json {model_arg} {shlex.quote(full_prompt)}"
+        start = time.time()
+        r = sandbox.run(cmd, timeout=self.cfg.get("timeout_s", 600))
+        trace.duration_s = round(time.time() - start, 2)
+        trace.final_output = r.stdout.strip()
+        if r.returncode != 0:
+            trace.error = f"codex exit {r.returncode}: {(r.stderr or r.stdout)[-1500:]}"
+        _parse_codex_jsonl(r.stdout, trace)
+        return trace
+
+
+def _parse_codex_jsonl(stdout: str, trace: Trace) -> None:
+    """Parse `codex exec --json` JSONL events into canonical AutoHarness ToolCalls."""
+    parsed = False
+    for line in stdout.splitlines():
+        line = line.strip()
+        if not line.startswith("{"):
+            continue
+        try:
+            ev = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        parsed = True
+        item = ev.get("item") or {}
+        itype = item.get("type") or ev.get("type", "")
+        if itype in ("command_execution", "shell"):
+            cmd = item.get("command") or ev.get("command", "")
+            out = item.get("aggregated_output") or item.get("output") or ""
+            exit_c = item.get("exit_code", 0)
+            if ev.get("type", "").endswith("completed") or "item" not in ev:
+                trace.tool_calls.append(ToolCall("run_bash", {"command": cmd}, str(out)[:4000], bool(exit_c)))
+                trace.turns += 1
+        elif itype == "file_change":
+            for ch in item.get("changes") or []:
+                p = ch.get("path", "")
+                if p:
+                    trace.tool_calls.append(ToolCall("write_file", {"path": p}, ch.get("kind", "modified"), False))
+        elif itype in ("agent_message", "message") and (item.get("text") or ev.get("text")):
+            trace.final_output = item.get("text") or ev.get("text")
+            trace.turns = max(1, trace.turns)
+        if ev.get("usage"):
+            u = ev["usage"]
+            trace.input_tokens += int(u.get("input_tokens", 0))
+            trace.output_tokens += int(u.get("output_tokens", 0))
+    if parsed and trace.turns == 0:
+        trace.turns = max(1, len(trace.tool_calls) + 1)
+
+
+class GeminiCliAgent:
+    """Google Gemini CLI (`gemini -p ... --yolo -o json`) substrate."""
+
+    def __init__(self, cfg: dict[str, Any], system_prompt: str, tree: HarnessTree | None = None):
+        self.cfg = cfg
+        self.system_prompt = system_prompt
+        self.tree = tree
+
+    def run(self, case: Case, sandbox: Sandbox, trial: int) -> Trace:
+        from .providers import find_cli
+
+        bin_path = find_cli("gemini", self.cfg.get("cli"))
+        if not bin_path:
+            return GeminiAgent(self.cfg, self.system_prompt, tree=self.tree).run(case, sandbox, trial)
+        if self.tree:
+            self.tree.stage_into_sandbox(sandbox)
+        trace = Trace(case_id=case.id, trial=trial, workdir=str(sandbox.dir))
+        full_prompt = f"{self.system_prompt}\n\nTask:\n{case.prompt}".strip() if self.system_prompt else case.prompt
+        model_arg = f"-m {shlex.quote(str(self.cfg['model']))}" if self.cfg.get("model") and self.cfg["model"] not in ("auto", "opus", "sonnet") else ""
+        cmd = f"{shlex.quote(bin_path)} -p {shlex.quote(full_prompt)} --yolo -o json {model_arg}"
+        start = time.time()
+        r = sandbox.run(cmd, timeout=self.cfg.get("timeout_s", 600))
+        trace.duration_s = round(time.time() - start, 2)
+        trace.turns = 1
+        trace.final_output = r.stdout.strip()
+        try:
+            obj = json.loads(r.stdout)
+            if isinstance(obj, dict):
+                if isinstance(obj.get("response"), str):
+                    trace.final_output = obj["response"]
+                stats = (obj.get("stats") or {}).get("models") or {}
+                for mstat in stats.values():
+                    toks = mstat.get("tokens") or {}
+                    trace.input_tokens += int(toks.get("prompt", 0))
+                    trace.output_tokens += int(toks.get("candidates", 0))
+        except json.JSONDecodeError:
+            pass
+        if r.returncode != 0:
+            trace.error = f"gemini cli exit {r.returncode}: {(r.stderr or r.stdout)[-1500:]}"
+        return trace
+
+
+class AutoRouterAgent:
+    """Automatic multi-model router: tries available local OSS (Ollama/vLLM), Gemini, Codex, OpenAI & Claude."""
+
+    def __init__(self, cfg: dict[str, Any], system_prompt: str, root=None, tree: HarnessTree | None = None):
+        self.cfg = cfg
+        self.system_prompt = system_prompt
+        self.root = root
+        self.tree = tree
+
+    def _candidates(self) -> list[Agent]:
+        from .providers import discover_providers
+
+        info = discover_providers()
+        chain: list[Agent] = []
+        if info["local_servers"]["ollama"]["online"]:
+            m = info["local_servers"]["ollama"]["models"][0]
+            chain.append(OllamaAgent({**self.cfg, "model": m, "base_url": info["local_servers"]["ollama"]["url"]}, self.system_prompt, tree=self.tree))
+        if info["local_servers"]["vllm"]["online"]:
+            m = info["local_servers"]["vllm"]["models"][0]
+            chain.append(OpenAIAgent({**self.cfg, "type": "vllm", "model": m, "base_url": "http://127.0.0.1:8000/v1"}, self.system_prompt, tree=self.tree))
+        if info["local_servers"]["lmstudio"]["online"]:
+            m = info["local_servers"]["lmstudio"]["models"][0]
+            chain.append(OpenAIAgent({**self.cfg, "type": "lmstudio", "model": m, "base_url": "http://127.0.0.1:1234/v1"}, self.system_prompt, tree=self.tree))
+        if info["api_keys"]["gemini"]:
+            chain.append(GeminiAgent({**self.cfg, "model": "gemini-2.5-pro"}, self.system_prompt, tree=self.tree))
+        elif info["clis"]["gemini"]:
+            chain.append(GeminiCliAgent({**self.cfg, "model": "gemini-2.5-pro"}, self.system_prompt, tree=self.tree))
+        if info["clis"]["codex"] or info["api_keys"]["openai"]:
+            chain.append(CodexAgent({**self.cfg, "model": "codex-mini-latest"}, self.system_prompt, tree=self.tree))
+        if info["api_keys"]["openrouter"]:
+            chain.append(OpenAIAgent({**self.cfg, "type": "openrouter", "model": "qwen/qwen3-coder"}, self.system_prompt, tree=self.tree))
+        if info["clis"]["claude"] and self.cfg.get("command"):
+            chain.append(CommandAgent(self.cfg, self.root))
+        if info["api_keys"]["anthropic"]:
+            chain.append(ClaudeAgent({**self.cfg, "model": "claude-sonnet-4-6"}, self.system_prompt, tree=self.tree))
+        return chain
+
+    def run(self, case: Case, sandbox: Sandbox, trial: int) -> Trace:
+        from .providers import is_rate_limit_or_quota
+
+        cands = self._candidates()
+        if not cands:
+            return ScriptedAgent(tree=self.tree).run(case, sandbox, trial)
+        last_trace: Trace | None = None
+        for ag in cands:
+            tr = ag.run(case, sandbox, trial)
+            last_trace = tr
+            if not tr.error or not is_rate_limit_or_quota(tr.error):
+                return tr
+        return last_trace or Trace(case_id=case.id, trial=trial, workdir=str(sandbox.dir), error="all configured providers rate-limited")
+
+
 def build_agent(cfg: dict[str, Any], root) -> Agent:
     kind = cfg["type"]
     spf = cfg.get("system_prompt_file")
@@ -510,10 +826,18 @@ def build_agent(cfg: dict[str, Any], root) -> Agent:
 
     if kind == "claude":
         return ClaudeAgent(cfg, compiled_prompt, tree=tree)
+    if kind == "codex":
+        return CodexAgent(cfg, compiled_prompt, tree=tree)
     if kind == "gemini":
         return GeminiAgent(cfg, compiled_prompt, tree=tree)
-    if kind == "openai":
+    if kind == "gemini-cli":
+        return GeminiCliAgent(cfg, compiled_prompt, tree=tree)
+    if kind in ("ollama", "opensource"):
+        return OllamaAgent(cfg, compiled_prompt, tree=tree)
+    if kind in ("openai", "vllm", "lmstudio", "openrouter"):
         return OpenAIAgent(cfg, compiled_prompt, tree=tree)
+    if kind == "auto":
+        return AutoRouterAgent(cfg, compiled_prompt, root=root, tree=tree)
     if kind == "command":
         return CommandAgent(cfg, root)
     if kind == "scripted":
