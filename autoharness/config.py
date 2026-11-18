@@ -16,7 +16,7 @@ DEFAULTS: dict[str, Any] = {
     "workers": 4,
     "agent": {
         "type": "claude",  # claude | gemini | openai | command | scripted
-        "model": "claude-opus-5-5",
+        "model": "opus",
         "effort": "medium",
         "system_prompt_file": "harnesses/default/system.md",  # file OR 8-component Harness² directory
         "max_turns": 20,
@@ -25,7 +25,7 @@ DEFAULTS: dict[str, Any] = {
     },
     "judge": {
         "backend": "api",  # claude-cli | api
-        "model": "claude-opus-5-5",
+        "model": "opus",
         "effort": "high",
         "samples": 3,  # self-consistency votes per judge check
         "min_confidence": 0.7,  # below this -> human review queue
@@ -39,7 +39,7 @@ DEFAULTS: dict[str, Any] = {
     },
     "fixer": {
         "backend": "claude-cli",  # claude-cli | api | gemini | openai
-        "model": "claude-opus-5-5",
+        "model": "opus",
         "effort": "high",
         "editable": [],  # harness files OR Harness² component directories the fixer may edit
         "candidates": 3,  # diverse candidate edits proposed per attempt (invariant / skill / guardrail)

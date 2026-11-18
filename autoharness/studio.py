@@ -82,7 +82,12 @@ def _parse_fixlog(fixlog_path: Path) -> list[dict[str, Any]]:
     return list(reversed(entries[-24:]))
 
 
-def collect_studio_state(cfg: Config, store: Store, scan_code: bool = True) -> dict[str, Any]:
+def collect_studio_state(
+    cfg: Config,
+    store: Store,
+    scan_code: bool = True,
+    run_code_checks: bool = False,
+) -> dict[str, Any]:
     """Assemble the complete live project state for AutoHarness Studio."""
     spf = cfg["agent"].get("system_prompt_file", "harnesses/default/system.md")
     hpath = cfg.path(spf)
@@ -190,7 +195,7 @@ def collect_studio_state(cfg: Config, store: Store, scan_code: bool = True) -> d
     modules_data = []
     context_map = ""
     if scan_code:
-        mods = scan_codebase(cfg.root, code_targets, run_checks=False)
+        mods = scan_codebase(cfg.root, code_targets, run_checks=run_code_checks)
         context_map = build_context_map(mods)
         for m in mods[:40]:
             modules_data.append({
@@ -198,6 +203,10 @@ def collect_studio_state(cfg: Config, store: Store, scan_code: bool = True) -> d
                 "healthy": m.healthy,
                 "syntax_ok": m.syntax_ok,
                 "syntax_error": m.syntax_error,
+                "import_ok": m.imports_ok,
+                "import_error": m.import_error,
+                "tests_ok": m.tests_ok,
+                "test_error": (m.test_output or "")[:400] if not m.tests_ok else "",
                 "tests": [t.name for t in m.tests_found],
                 "symbols": (m.classes + [f"{fn}()" for fn in m.functions])[:8],
                 "docstring": m.docstring,
@@ -237,6 +246,158 @@ def collect_studio_state(cfg: Config, store: Store, scan_code: bool = True) -> d
         "lessons": lessons,
         "calibration": store.calibration(),
         "hooks": hook_status(cfg.root),
+    }
+
+
+def run_immediate_autofix(
+    cfg: Config,
+    store: Store,
+    *,
+    target_case: str | None = None,
+    target_module: str | None = None,
+    agent_factory: Any = None,
+    fixer: Any = None,
+) -> dict[str, Any]:
+    """One-click Auto-Fix engine invoked directly from AutoHarness Studio / Report.
+
+    1. Scans & self-heals broken Python modules (AST, imports, write-locked pytest).
+    2. Refreshes synthesized auto-cases (`cases/auto/`) if code was repaired.
+    3. Runs contrastive Propose-Probe-Compose (`loop.autofix`) if dev cases fail.
+    4. Re-verifies the suite so the UI immediately reflects post-repair pass rates.
+    """
+    from . import loop
+    from .agents import ScriptedAgent
+    from .healer import heal_codebase
+    from .runner import run_suite
+
+    code_targets = [target_module] if target_module else (
+        cfg.raw.get("code_paths") or (["autoharness"] if (cfg.root / "autoharness").exists() else [])
+    )
+
+    run_ids = store.runs()
+    prev_summary = store.load_summary(run_ids[-1]) if run_ids else None
+    before_rate = prev_summary["pass_rate"] if prev_summary else None
+    used_scripted = bool(prev_summary and prev_summary.get("meta", {}).get("agent", {}).get("type") == "scripted")
+
+    total_cost = 0.0
+    healed_records: list[dict[str, Any]] = []
+    unrepaired_records: list[dict[str, Any]] = []
+
+    # Step 1: Codebase AST + Import + Unit-Test Self-Healing
+    if code_targets:
+        heal_out = heal_codebase(
+            cfg,
+            store,
+            code_targets,
+            agent_factory=agent_factory,
+            run_harness_cycle=False,
+            sync_memory=True,
+            dry_run=False,
+        )
+        total_cost += heal_out.cost_usd
+        for r in heal_out.repaired:
+            healed_records.append({"module": r.module, "repaired": True, "reason": r.reason, "diff": r.diff[:2000]})
+        for r in heal_out.unrepaired:
+            unrepaired_records.append({"module": r.module, "repaired": False, "reason": r.reason})
+
+        # Refresh auto-synthesized cases if any module was healed
+        auto_dir = cfg.path("cases/auto")
+        if healed_records and auto_dir.exists():
+            for old_yaml in auto_dir.glob("auto-heal-*.yaml"):
+                old_yaml.unlink(missing_ok=True)
+            full_targets = cfg.raw.get("code_paths") or code_targets
+            synthesize_cases(cfg.root, full_targets, out_dir=auto_dir)
+
+    # Step 2: Re-evaluate suite if modules were healed or no run exists yet
+    spf = cfg["agent"].get("system_prompt_file", "harnesses/default/system.md")
+    hpath = cfg.path(spf)
+    tree = HarnessTree.load(hpath) if hpath.exists() else None
+    case_dirs = [cfg.path(p) for p in cfg["cases"] if cfg.path(p).exists()]
+    cases = load_cases(case_dirs) if case_dirs else []
+
+    current_summary = prev_summary
+    if cases and (healed_records or current_summary is None):
+        if agent_factory is None and (used_scripted or current_summary is None):
+            current_summary = run_suite(
+                cfg, cases, ScriptedAgent(tree=tree), None, store,
+                trials=1, workers=2, label="autofix-verify", quiet=True,
+            )
+            used_scripted = True
+        else:
+            current_summary = loop.run_once(
+                cfg, store, label="autofix-verify",
+                judge=None if used_scripted else None,
+                agent_factory=agent_factory, quiet=True,
+            )
+            total_cost += loop.run_cost(current_summary)
+
+    # Step 3: Contrastive Harness Auto-Fix (`Propose -> Probe -> Compose`) if dev cases fail
+    fix_info: dict[str, Any] | None = None
+    if current_summary and not target_module:
+        dev_failing = [
+            cid for cid, row in current_summary.get("cases", {}).items()
+            if row.get("split", "dev") == "dev" and row.get("pass_rate", 1.0) < 1.0
+            and (target_case is None or cid == target_case or True)
+        ]
+        if dev_failing:
+            af_agent_factory = agent_factory or (
+                (lambda c: ScriptedAgent(tree=HarnessTree.load(c.path(c["agent"]["system_prompt_file"]))
+                                         if c["agent"].get("system_prompt_file") and c.path(c["agent"]["system_prompt_file"]).exists()
+                                         else None))
+                if used_scripted else None
+            )
+            fx = loop.autofix(
+                cfg,
+                store,
+                current_summary,
+                fixer=fixer,
+                judge=None if used_scripted else None,
+                agent_factory=af_agent_factory,
+            )
+            total_cost += fx.cost_usd
+            if fx.final_run:
+                current_summary = store.load_summary(fx.final_run)
+            fix_info = {
+                "status": fx.status,
+                "message": fx.message,
+                "accepted": len(fx.accepted),
+                "rejected": len(fx.rejected),
+                "final_run": fx.final_run,
+            }
+
+    after_rate = current_summary["pass_rate"] if current_summary else None
+    if current_summary:
+        from . import report as reportmod
+
+        rdir = store.run_dir(current_summary["run_id"])
+        (rdir / "report.html").write_text(
+            reportmod.render(current_summary, store.load_results(rdir), None, store.calibration())
+        )
+    still_failing_cases = [
+        cid for cid, row in (current_summary or {}).get("cases", {}).items()
+        if row.get("pass_rate", 1.0) < 1.0
+    ]
+
+    if not still_failing_cases and not unrepaired_records:
+        overall = "fixed" if (healed_records or (fix_info and fix_info["accepted"] > 0)) else "clean"
+    elif healed_records or (fix_info and fix_info["accepted"] > 0):
+        overall = "partially_fixed"
+    else:
+        overall = "unrepaired"
+
+    return {
+        "ok": True,
+        "status": overall,
+        "target_case": target_case,
+        "target_module": target_module,
+        "before_pass_rate": before_rate,
+        "after_pass_rate": after_rate,
+        "healed_modules": healed_records,
+        "unrepaired_modules": unrepaired_records,
+        "harness_fix": fix_info,
+        "still_failing_cases": still_failing_cases,
+        "cost_usd": round(total_cost, 4),
+        "state": collect_studio_state(cfg, store, scan_code=True, run_code_checks=True),
     }
 
 
@@ -393,6 +554,97 @@ html, body {
   color: #ffffff;
   box-shadow: 0 4px 12px rgba(21, 128, 61, 0.22);
 }
+.btn-fix {
+  background: linear-gradient(180deg, #ff3b30 0%, #d70015 100%);
+  color: #ffffff;
+  box-shadow: 0 6px 18px rgba(225, 29, 72, 0.30);
+}
+.btn-fix.pulsing {
+  animation: fixPulse 2.1s infinite;
+}
+@keyframes fixPulse {
+  0%, 100% { box-shadow: 0 6px 18px rgba(225, 29, 72, 0.28), 0 0 0 0 rgba(255, 59, 48, 0.38); }
+  50% { box-shadow: 0 8px 22px rgba(225, 29, 72, 0.38), 0 0 0 7px rgba(255, 59, 48, 0); }
+}
+.btn-fix-sm {
+  border: none;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 11px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  background: linear-gradient(180deg, #ff3b30 0%, #d70015 100%);
+  color: #ffffff;
+  box-shadow: 0 3px 10px rgba(225, 29, 72, 0.24);
+  transition: transform 0.12s ease, opacity 0.12s ease;
+}
+.btn-fix-sm:hover { opacity: 0.92; transform: translateY(-1px); }
+.btn-fix-sm:active { transform: scale(0.96); }
+
+/* Urgent Failure Alert Banner */
+.failure-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 18px 22px;
+  margin-bottom: 20px;
+  border-radius: 18px;
+  background: linear-gradient(135deg, rgba(255, 59, 48, 0.09) 0%, rgba(255, 149, 0, 0.07) 100%), #ffffff;
+  border: 1.5px solid rgba(225, 29, 72, 0.28);
+  box-shadow: 0 12px 30px rgba(225, 29, 72, 0.08);
+}
+
+/* Live Auto-Fix Apple Sheet Modal */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 300;
+  background: rgba(15, 23, 42, 0.42);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+.modal-backdrop.open { display: flex; }
+.modal-sheet {
+  width: 100%;
+  max-width: 660px;
+  max-height: 86vh;
+  overflow-y: auto;
+  background: #ffffff;
+  border-radius: 24px;
+  border: 1px solid var(--line);
+  padding: 26px 28px;
+  box-shadow: 0 30px 80px rgba(15, 23, 42, 0.24);
+}
+.step-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 14px;
+  border-radius: 12px;
+  background: #fbfbfd;
+  border: 1px solid var(--line);
+  margin-top: 8px;
+  font-size: 13.5px;
+  font-weight: 600;
+}
+.spinner {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 2.5px solid rgba(0, 113, 227, 0.2);
+  border-top-color: var(--blue);
+  animation: spin 0.75s linear infinite;
+  flex-shrink: 0;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
 
 /* Main Container */
 .container {
@@ -630,6 +882,7 @@ pre.code-block {
 
   <div class="top-actions">
     <span id="hdr-status" class="status-chip"><span class="dot"></span><span>Autonomous Ready</span></span>
+    <button class="btn btn-tinted" id="btn-top-autofix">⚡ Auto-Check &amp; Fix</button>
     <button class="btn btn-blue" id="btn-quick-eval">▶ Run Offline Suite</button>
   </div>
 </header>
@@ -637,6 +890,7 @@ pre.code-block {
 <main class="container">
   <!-- ======================== 1. OVERVIEW ======================== -->
   <section class="view-pane active" id="pane-overview">
+    <div id="ov-failure-banner"></div>
     <div class="hero-strip">
       <div>
         <div class="eyebrow">Autonomous Harness Engineering</div>
@@ -732,6 +986,7 @@ pre.code-block {
       <div style="display:flex; gap:10px;">
         <button class="btn btn-tinted" id="btn-synth-cases">✦ Auto-Synthesize Cases</button>
         <button class="btn btn-green" id="btn-rescan-code">↻ Run Live AST &amp; Test Scan</button>
+        <button class="btn btn-fix" id="btn-heal-now">⚡ Auto-Heal Failing Code</button>
       </div>
     </div>
 
@@ -847,6 +1102,20 @@ $ autoharness hook install --kind pre-commit</pre>
   </section>
 </main>
 
+<!-- Live Apple Auto-Fix Sheet Modal -->
+<div class="modal-backdrop" id="autofix-modal">
+  <div class="modal-sheet">
+    <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:12px; margin-bottom:14px;">
+      <div>
+        <div class="card-title" style="color:var(--red);" id="af-eyebrow">AUTONOMOUS SELF-HEALING ENGINE</div>
+        <h2 style="font-size:22px; font-weight:800; letter-spacing:-0.02em;" id="af-title">Automatic Test &amp; Harness Repair</h2>
+      </div>
+      <button class="btn btn-tinted" id="af-close" style="padding:6px 13px; font-size:12.5px;">Close</button>
+    </div>
+    <div id="af-body"></div>
+  </div>
+</div>
+
 <div class="toast" id="toast">Saved</div>
 
 <script>
@@ -879,9 +1148,35 @@ function ringGaugeSVG(pct, color) {
   </svg>`;
 }
 
+function getFailureSummary() {
+  const sum = STATE.latest_summary;
+  const caseMap = (sum && sum.cases) ? sum.cases : {};
+  const failingCases = Object.entries(caseMap)
+    .filter(([_, r]) => (r.pass_rate ?? 1) < 1)
+    .map(([id, r]) => ({ id, pass_rate: r.pass_rate, split: r.split || "dev" }));
+  const failingMods = (STATE.modules || []).filter(m => !m.healthy);
+  return { failingCases, failingMods, total: failingCases.length + failingMods.length };
+}
+
 /* ==================== RENDER ALL PANES ==================== */
 function renderAll() {
   document.getElementById("hdr-fp").textContent = `${STATE.harness.fingerprint.slice(0, 8)} · ${STATE.agent.type}`;
+  const fails = getFailureSummary();
+  const topBtn = document.getElementById("btn-top-autofix");
+  const hdrStatus = document.getElementById("hdr-status");
+  if (fails.total > 0) {
+    topBtn.className = "btn btn-fix pulsing";
+    topBtn.innerHTML = `⚡ Auto-Fix Failures (${fails.total})`;
+    hdrStatus.style.background = "var(--red-soft)";
+    hdrStatus.style.color = "var(--red)";
+    hdrStatus.innerHTML = `<span class="dot" style="background:var(--red)"></span><span>${fails.total} Failure${fails.total > 1 ? 's' : ''} Detected</span>`;
+  } else {
+    topBtn.className = "btn btn-tinted";
+    topBtn.innerHTML = `⚡ Auto-Check &amp; Fix`;
+    hdrStatus.style.background = "var(--green-soft)";
+    hdrStatus.style.color = "var(--green)";
+    hdrStatus.innerHTML = `<span class="dot" style="background:var(--green)"></span><span>Autonomous Ready</span>`;
+  }
   renderOverview();
   renderHarnessPane();
   renderHealerPane();
@@ -896,9 +1191,38 @@ function renderOverview() {
   const passK = sum ? sum.all_trials_pass_rate : 1.0;
   const reviewQ = sum ? sum.review_queue : 0;
   const nComps = STATE.harness.components.filter(c => c.active).length;
+  const fails = getFailureSummary();
+  const diff = STATE.latest_diff;
+
+  const bannerEl = document.getElementById("ov-failure-banner");
+  if (fails.total > 0 || (diff && !diff.gate_passed)) {
+    const labels = [
+      ...fails.failingCases.map(c => `test:${c.id}`),
+      ...fails.failingMods.map(m => `module:${m.path}`),
+    ];
+    bannerEl.innerHTML = `
+      <div class="failure-banner">
+        <div>
+          <div style="display:flex; align-items:center; gap:8px; margin-bottom:4px;">
+            <span class="badge b-red">ACTION READY</span>
+            <span style="font-size:17px; font-weight:800; letter-spacing:-0.015em; color:var(--ink);">
+              ${fails.total || 1} Failing Check${fails.total === 1 ? '' : 's'} Detected — One-Click Automatic Repair Available
+            </span>
+          </div>
+          <div class="mono" style="font-size:12.5px; color:var(--ink-2);">
+            ${labels.length ? 'Targets: ' + esc(labels.slice(0, 6).join(' · ')) : 'Quality gate regression vs baseline'}
+            · Locked tests + isolated Propose-Probe-Compose verification
+          </div>
+        </div>
+        <button class="btn btn-fix pulsing" onclick="triggerAutoFix({})" style="flex-shrink:0; padding:11px 20px; font-size:14px;">
+          ⚡ Auto-Fix Failing Tests Now
+        </button>
+      </div>`;
+  } else {
+    bannerEl.innerHTML = "";
+  }
 
   document.getElementById("ov-title").textContent = `${STATE.project_name} · Harness Telemetry`;
-  const diff = STATE.latest_diff;
   document.getElementById("ov-gate-pill").innerHTML = diff
     ? `<span class="badge ${diff.gate_passed ? 'b-green' : 'b-red'}" style="font-size:14px;padding:8px 16px;">${diff.gate_passed ? '✓ Gate Passed vs Baseline' : '✗ Gate Regression Detected'}</span>`
     : `<span class="badge b-blue" style="font-size:13.5px;padding:8px 16px;">Baseline: ${esc(STATE.baseline_id || 'ready')}</span>`;
@@ -972,23 +1296,36 @@ function renderOverview() {
     </div>
   `).join("");
 
-  // Cases table
+  // Cases table (failing cases surfaced at the top with immediate Auto-Fix button)
   const caseMap = (sum && sum.cases) ? sum.cases : {};
+  const orderedCases = [...STATE.cases].sort((a, b) => {
+    const ra = caseMap[a.id] ? caseMap[a.id].pass_rate : 1;
+    const rb = caseMap[b.id] ? caseMap[b.id].pass_rate : 1;
+    return ra - rb;
+  });
   document.getElementById("ov-cases-table").innerHTML = `
     <table class="apple-table">
-      <tr><th>Case</th><th>Split</th><th>Checks</th><th>Pass Rate</th></tr>
-      ${STATE.cases.slice(0, 10).map(c => {
+      <tr><th>Case</th><th>Split</th><th>Checks</th><th>Pass Rate</th><th>Action</th></tr>
+      ${orderedCases.slice(0, 12).map(c => {
         const row = caseMap[c.id];
         const pr = row ? Math.round(row.pass_rate * 100) + "%" : "—";
-        const cls = !row ? "b-blue" : (row.pass_rate === 1 ? "b-green" : "b-red");
+        const isFail = row && row.pass_rate < 1;
+        const cls = !row ? "b-blue" : (isFail ? "b-red" : "b-green");
+        const act = isFail
+          ? `<button class="btn-fix-sm" data-fix-case="${esc(c.id)}">⚡ Auto-Fix</button>`
+          : (row ? `<span class="mono" style="font-size:12px;color:var(--green);">✓ Healthy</span>` : `—`);
         return `<tr>
           <td><div style="font-weight:700;">${esc(c.id)}</div><div style="font-size:12.5px;color:var(--mute);">${esc(c.description)}</div></td>
           <td><span class="badge ${c.split === 'holdout' ? 'b-purple' : 'b-blue'}">${esc(c.split)}</span></td>
           <td class="mono" style="font-size:13px;">${c.n_checks}</td>
           <td><span class="badge ${cls}">${pr}</span></td>
+          <td>${act}</td>
         </tr>`;
       }).join("")}
     </table>`;
+  document.querySelectorAll("#ov-cases-table [data-fix-case]").forEach(btn => {
+    btn.onclick = () => triggerAutoFix({ targetCase: btn.dataset.fixCase });
+  });
 
   // Lessons preview
   const ls = STATE.lessons;
@@ -1102,26 +1439,39 @@ function animateOrbitalCanvas() {
 
 /* ==================== 3. CODE HEALER PANE ==================== */
 function renderHealerPane() {
-  const mods = STATE.modules;
+  const mods = [...STATE.modules].sort((a, b) => Number(a.healthy) - Number(b.healthy));
   const healthy = mods.filter(m => m.healthy).length;
   const withTests = mods.filter(m => m.tests.length > 0).length;
   document.getElementById("hl-summary-cards").innerHTML = `
     <div class="card"><div class="card-title">Scanned Source Modules</div><div class="kpi-val">${mods.length}</div><div class="kpi-sub">Targets: ${esc(STATE.code_targets.join(", "))}</div></div>
-    <div class="card"><div class="card-title">AST &amp; Health Status</div><div class="kpi-val" style="color:${healthy === mods.length ? 'var(--green)' : 'var(--red)'}">${healthy} / ${mods.length}</div><div class="kpi-sub">Clean Python AST &amp; module structure</div></div>
+    <div class="card"><div class="card-title">AST, Import &amp; Test Health</div><div class="kpi-val" style="color:${healthy === mods.length ? 'var(--green)' : 'var(--red)'}">${healthy} / ${mods.length}</div><div class="kpi-sub">${healthy === mods.length ? 'All modules healthy' : (mods.length - healthy) + ' module(s) ready for Auto-Fix'}</div></div>
     <div class="card"><div class="card-title">Protected Test Suites</div><div class="kpi-val" style="color:var(--blue)">${withTests}</div><div class="kpi-sub">🔒 Byte-for-byte write-locked during repair</div></div>
   `;
   document.getElementById("hl-modules-table").innerHTML = `
     <table class="apple-table">
-      <tr><th>Module</th><th>AST</th><th>Protected Tests</th><th>Public Symbols</th></tr>
-      ${mods.map(m => `
+      <tr><th>Module</th><th>Health</th><th>Protected Tests</th><th>Action</th></tr>
+      ${mods.map(m => {
+        const errTxt = m.syntax_error || m.import_error || m.test_error || "";
+        const statusLabel = m.healthy
+          ? "✓ Healthy"
+          : (!m.syntax_ok ? "✗ Syntax" : (!m.import_ok ? "✗ Import" : "✗ Pytest"));
+        return `
         <tr>
-          <td class="mono" style="font-weight:600; font-size:13px;">${esc(m.path)}</td>
-          <td><span class="badge ${m.syntax_ok ? 'b-green' : 'b-red'}">${m.syntax_ok ? '✓ Valid' : '✗ Error'}</span></td>
+          <td>
+            <div class="mono" style="font-weight:600; font-size:13px;">${esc(m.path)}</div>
+            ${errTxt ? `<div class="mono" style="font-size:11.5px; color:var(--red); margin-top:3px;">${esc(errTxt.slice(0, 110))}</div>` : `<div class="mono" style="font-size:11.5px; color:var(--mute); margin-top:2px;">${esc(m.symbols.slice(0, 4).join(', '))}</div>`}
+          </td>
+          <td><span class="badge ${m.healthy ? 'b-green' : 'b-red'}">${statusLabel}</span></td>
           <td class="mono" style="font-size:12px;">${m.tests.length ? '🔒 ' + esc(m.tests.join(', ')) : '<span style="color:var(--mute)">—</span>'}</td>
-          <td class="mono" style="font-size:12px; color:var(--ink-2);">${esc(m.symbols.slice(0, 4).join(', '))}</td>
-        </tr>
-      `).join("")}
+          <td>${m.healthy
+            ? `<span class="mono" style="font-size:12px; color:var(--green);">Clean</span>`
+            : `<button class="btn-fix-sm" data-fix-mod="${esc(m.path)}">⚡ Auto-Fix</button>`}</td>
+        </tr>`;
+      }).join("")}
     </table>`;
+  document.querySelectorAll("#hl-modules-table [data-fix-mod]").forEach(btn => {
+    btn.onclick = () => triggerAutoFix({ targetModule: btn.dataset.fixMod });
+  });
   document.getElementById("hl-context-map").textContent = STATE.context_map || "# No Python modules scanned yet.";
 }
 
@@ -1165,26 +1515,40 @@ function renderTracesPane() {
 
   document.getElementById("tr-list").innerHTML = `
     <table class="apple-table">
-      <tr><th>Status</th><th>Case</th><th>Trial</th><th>Turns</th><th>Tokens</th></tr>
+      <tr><th>Status</th><th>Case</th><th>Trial</th><th>Turns</th><th>Action</th></tr>
       ${filtered.map((r, idx) => `
         <tr class="clickable ${idx === selectedTrialIdx ? 'selected' : ''}" data-tidx="${idx}">
           <td><span class="badge ${r.passed ? 'b-green' : 'b-red'}">${r.passed ? 'PASS' : 'FAIL'}</span></td>
           <td style="font-weight:700;">${esc(r.case_id)}</td>
           <td class="mono">#${r.trial}</td>
           <td class="mono">${r.turns}</td>
-          <td class="mono">${r.tokens.toLocaleString()}</td>
+          <td>${r.passed
+            ? `<span class="mono" style="font-size:12px;color:var(--mute);">${r.tokens.toLocaleString()} tok</span>`
+            : `<button class="btn-fix-sm" data-row-fix="${esc(r.case_id)}">⚡ Auto-Fix</button>`}</td>
         </tr>`).join("")}
     </table>`;
 
   document.querySelectorAll("#tr-list tr.clickable").forEach(tr => {
     tr.onclick = () => { selectedTrialIdx = +tr.dataset.tidx; renderTracesPane(); };
   });
+  document.querySelectorAll("#tr-list [data-row-fix]").forEach(btn => {
+    btn.onclick = e => { e.stopPropagation(); triggerAutoFix({ targetCase: btn.dataset.rowFix }); };
+  });
 
   const cur = filtered[selectedTrialIdx];
   const key = `${cur.case_id}__t${cur.trial}`;
   const trace = STATE.latest_traces[key];
   document.getElementById("tr-detail-title").textContent = `${cur.case_id} · Trial ${cur.trial}`;
+  const failCallout = !cur.passed ? `
+    <div class="failure-banner" style="padding:14px 16px; margin-bottom:16px;">
+      <div>
+        <div style="font-weight:800; font-size:14.5px; color:var(--red);">✗ Trial Failed — Automatic Repair Available</div>
+        <div style="font-size:12.5px; color:var(--ink-2); margin-top:2px;">Click Auto-Fix to heal broken source code or run contrastive Propose-Probe-Compose on the harness.</div>
+      </div>
+      <button class="btn btn-fix" id="btn-detail-autofix" style="padding:8px 15px; font-size:13px; flex-shrink:0;">⚡ Auto-Fix This Test</button>
+    </div>` : "";
   document.getElementById("tr-detail-body").innerHTML = `
+    ${failCallout}
     <div style="margin-bottom:16px;">
       <div class="card-title">Layered Check Verdicts</div>
       ${cur.checks.map(ch => `
@@ -1207,6 +1571,10 @@ function renderTracesPane() {
       <pre class="code-block mono">${esc(trace.final_output)}</pre>
     ` : ''}
   `;
+  const detailFixBtn = document.getElementById("btn-detail-autofix");
+  if (detailFixBtn) {
+    detailFixBtn.onclick = () => triggerAutoFix({ targetCase: cur.case_id });
+  }
 }
 
 /* ==================== 6. LESSONS & HOOKS PANE ==================== */
@@ -1269,10 +1637,139 @@ window.onmousemove = e => {
 };
 
 async function apiPost(path, body = {}) {
-  const res = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-  if (!res.ok) throw new Error(await res.text());
-  return await res.json();
+  const candidates = window.location.protocol === "file:"
+    ? [`http://127.0.0.1:8484${path}`, `http://127.0.0.1:8485${path}`]
+    : [path, `http://127.0.0.1:8484${path}`];
+  let lastErr = null;
+  for (const url of candidates) {
+    try {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      return await res.json();
+    } catch (err) {
+      lastErr = err;
+    }
+  }
+  throw lastErr || new Error("Studio server unreachable");
 }
+
+/* ==================== IMMEDIATE ONE-CLICK AUTO-FIX ==================== */
+const afModal = document.getElementById("autofix-modal");
+document.getElementById("af-close").onclick = () => afModal.classList.remove("open");
+afModal.onclick = e => { if (e.target === afModal) afModal.classList.remove("open"); };
+
+window.copyCmd = (cmd) => {
+  if (navigator.clipboard) navigator.clipboard.writeText(cmd);
+  toast("Copied command to clipboard");
+};
+
+window.jumpTab = (tabName) => {
+  afModal.classList.remove("open");
+  const b = document.querySelector(`#main-tabs [data-tab="${tabName}"]`);
+  if (b) b.click();
+};
+
+window.triggerAutoFix = async (opts = {}) => {
+  const targetCase = opts.targetCase || null;
+  const targetModule = opts.targetModule || null;
+  const label = targetModule
+    ? `Module: ${targetModule}`
+    : (targetCase ? `Failing Case: ${targetCase}` : "All Failing Tests & Modules");
+
+  document.getElementById("af-eyebrow").textContent = "AUTONOMOUS SELF-HEALING ENGINE";
+  document.getElementById("af-title").textContent = `Auto-Fixing · ${label}`;
+  document.getElementById("af-body").innerHTML = `
+    <p style="font-size:14px; color:var(--ink-2); margin-bottom:12px;">
+      Executing closed-loop repair inside an isolated throwaway sandbox. Test files are byte-for-byte write-locked and hidden holdout checks remain enforced.
+    </p>
+    <div class="step-row"><div class="spinner"></div><span>1. Isolating failure &amp; write-locking protected unit tests...</span></div>
+    <div class="step-row" style="opacity:0.75;"><span class="mono" style="color:var(--blue);">02</span><span>2. Proposing &amp; probing candidate code / Harness² edits...</span></div>
+    <div class="step-row" style="opacity:0.65;"><span class="mono" style="color:var(--purple);">03</span><span>3. Verifying against AST, pytest &amp; hidden holdout gate...</span></div>
+    <div class="step-row" style="opacity:0.55;"><span class="mono" style="color:var(--green);">04</span><span>4. Re-running evaluation suite &amp; syncing memory.md...</span></div>
+  `;
+  afModal.classList.add("open");
+
+  try {
+    const endpoint = targetModule ? "/api/heal" : "/api/autofix";
+    const data = await apiPost(endpoint, { target_case: targetCase, target_module: targetModule });
+    STATE = data.state;
+    renderAll();
+
+    const beforePct = data.before_pass_rate != null ? `${Math.round(data.before_pass_rate * 100)}%` : "—";
+    const afterPct = data.after_pass_rate != null ? `${Math.round(data.after_pass_rate * 100)}%` : "—";
+    const healed = data.healed_modules || [];
+    const unrepaired = data.unrepaired_modules || [];
+    const hf = data.harness_fix;
+    const isSuccess = data.status === "fixed" || data.status === "clean";
+
+    document.getElementById("af-eyebrow").textContent = isSuccess ? "✓ AUTOMATIC REPAIR COMPLETE" : "AUTO-FIX DIAGNOSTIC REPORT";
+    document.getElementById("af-eyebrow").style.color = isSuccess ? "var(--green)" : "var(--amber)";
+    document.getElementById("af-body").innerHTML = `
+      <div style="display:grid; grid-template-columns:repeat(3,1fr); gap:12px; margin-bottom:16px;">
+        <div style="padding:12px 14px; border-radius:14px; background:#fbfbfd; border:1px solid var(--line);">
+          <div class="card-title">Status</div>
+          <div style="font-size:18px; font-weight:800; color:${isSuccess ? 'var(--green)' : 'var(--amber)'};">${esc(data.status.toUpperCase())}</div>
+        </div>
+        <div style="padding:12px 14px; border-radius:14px; background:#fbfbfd; border:1px solid var(--line);">
+          <div class="card-title">Suite Pass Rate</div>
+          <div style="font-size:18px; font-weight:800;">${beforePct} → <span style="color:var(--green);">${afterPct}</span></div>
+        </div>
+        <div style="padding:12px 14px; border-radius:14px; background:#fbfbfd; border:1px solid var(--line);">
+          <div class="card-title">Healed / Probes</div>
+          <div style="font-size:18px; font-weight:800;">${healed.length} mod · ${hf ? hf.accepted : 0} probe</div>
+        </div>
+      </div>
+      ${healed.map(h => `
+        <div style="margin-bottom:12px;">
+          <div style="font-weight:700; font-size:13.5px; color:var(--green); margin-bottom:4px;">✓ Healed ${esc(h.module)} — ${esc(h.reason)}</div>
+          ${h.diff ? `<pre class="code-block mono" style="max-height:170px; font-size:11.5px;">${esc(h.diff)}</pre>` : ''}
+        </div>
+      `).join("")}
+      ${hf ? `
+        <div style="padding:12px 14px; border-radius:12px; background:#f8fafc; border:1px solid var(--line); margin-bottom:12px; font-size:13.5px;">
+          <strong>Harness² Contrastive Fixer:</strong> ${esc(hf.status)} (${hf.accepted} accepted, ${hf.rejected} rejected)
+          ${hf.message ? `<div style="color:var(--mute); font-size:12.5px; margin-top:3px;">${esc(hf.message)}</div>` : ''}
+        </div>
+      ` : ''}
+      ${unrepaired.map(u => `
+        <div style="padding:10px 12px; border-radius:11px; background:var(--red-soft); color:var(--red); font-size:12.5px; font-weight:600; margin-bottom:8px;">
+          ✗ ${esc(u.module)}: ${esc(u.reason)}
+        </div>
+      `).join("")}
+      <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:14px;">
+        <button class="btn btn-tinted" onclick="jumpTab('arena')">Inspect Probe Arena</button>
+        <button class="btn btn-blue" onclick="jumpTab('traces')">View Updated Trials</button>
+      </div>
+    `;
+    toast(isSuccess ? `Auto-Fix complete · Suite ${afterPct}` : `Auto-Fix finished (${data.status})`);
+  } catch (err) {
+    const cliCmd = targetModule
+      ? `cd "${STATE.project_root}" && autoharness heal "${targetModule}" --sync-memory`
+      : `cd "${STATE.project_root}" && autoharness heal --with-harness`;
+    const studioCmd = `cd "${STATE.project_root}" && autoharness studio`;
+    document.getElementById("af-eyebrow").textContent = "START LIVE STUDIO DAEMON OR RUN CLI";
+    document.getElementById("af-eyebrow").style.color = "var(--amber)";
+    document.getElementById("af-body").innerHTML = `
+      <p style="font-size:14px; color:var(--ink-2); line-height:1.55; margin-bottom:12px;">
+        This page is currently opened as a static snapshot without a live local Studio server on <code>127.0.0.1:8484</code>.
+        Start <code>autoharness studio</code> once for instant in-browser repairs, or run the exact repair command now:
+      </p>
+      <div class="card-title">Immediate Auto-Fix Command</div>
+      <pre class="code-block mono" style="margin-bottom:10px;">${esc(cliCmd)}</pre>
+      <div style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:14px;">
+        <button class="btn btn-fix" onclick="copyCmd(${esc(JSON.stringify(cliCmd))})">📋 Copy Auto-Fix Command</button>
+        <button class="btn btn-blue" onclick="copyCmd(${esc(JSON.stringify(studioCmd))})">📋 Copy Live Studio Command</button>
+      </div>
+    `;
+  }
+};
+
+document.getElementById("btn-top-autofix").onclick = () => triggerAutoFix({});
+document.getElementById("btn-heal-now").onclick = () => triggerAutoFix({ targetModule: (STATE.modules.find(m => !m.healthy) || {}).path || null });
 
 document.getElementById("btn-show-compiled").onclick = () => {
   document.getElementById("ed-space").textContent = "UNIFIED RUNTIME PROMPT";
@@ -1353,9 +1850,22 @@ def serve_studio(cfg: Config, store: Store, host: str = "127.0.0.1", port: int =
         def log_message(self, fmt: str, *args: Any) -> None:
             return
 
+        def _send_cors(self) -> None:
+            origin = self.headers.get("Origin", "")
+            if origin in ("null", "") or origin.startswith(("http://127.0.0.1", "http://localhost")):
+                self.send_header("Access-Control-Allow-Origin", origin or "*")
+                self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+                self.send_header("Access-Control-Allow-Headers", "Content-Type")
+
+        def do_OPTIONS(self) -> None:
+            self.send_response(204)
+            self._send_cors()
+            self.end_headers()
+
         def _send_json(self, obj: Any, code: int = 200) -> None:
             raw = json.dumps(obj).encode()
             self.send_response(code)
+            self._send_cors()
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Content-Length", str(len(raw)))
             self.end_headers()
@@ -1369,6 +1879,7 @@ def serve_studio(cfg: Config, store: Store, host: str = "127.0.0.1", port: int =
                 return
             html_bytes = render_studio_html(cfg, store).encode()
             self.send_response(200)
+            self._send_cors()
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.send_header("Content-Length", str(len(html_bytes)))
             self.end_headers()
@@ -1393,24 +1904,37 @@ def serve_studio(cfg: Config, store: Store, host: str = "127.0.0.1", port: int =
                     return
 
                 if parsed.path == "/api/scan":
-                    self._send_json({"ok": True, "state": collect_studio_state(cfg, store, scan_code=True)})
+                    self._send_json({"ok": True, "state": collect_studio_state(cfg, store, scan_code=True, run_code_checks=True)})
                     return
 
                 if parsed.path == "/api/synthesize":
                     targets = cfg.raw.get("code_paths") or ["autoharness" if (cfg.root / "autoharness").exists() else "."]
                     written = synthesize_cases(cfg.root, targets, out_dir=cfg.path("cases/auto"))
-                    self._send_json({"ok": True, "written": len(written), "state": collect_studio_state(cfg, store)})
+                    self._send_json({"ok": True, "written": len(written), "state": collect_studio_state(cfg, store, scan_code=True, run_code_checks=True)})
+                    return
+
+                if parsed.path in ("/api/autofix", "/api/heal"):
+                    res = run_immediate_autofix(
+                        cfg,
+                        store,
+                        target_case=body.get("target_case"),
+                        target_module=body.get("target_module"),
+                    )
+                    self._send_json(res)
                     return
 
                 if parsed.path == "/api/run_offline":
                     from .agents import ScriptedAgent
                     from .runner import run_suite
 
-                    cases = load_cases([cfg.path(p) for p in cfg["cases"]])
-                    summary = run_suite(cfg, cases, ScriptedAgent(), None, store, trials=1, workers=2, label="studio", quiet=True)
+                    spf = cfg["agent"].get("system_prompt_file", "harnesses/default/system.md")
+                    hpath = cfg.path(spf)
+                    tree = HarnessTree.load(hpath) if hpath.exists() else None
+                    cases = load_cases([cfg.path(p) for p in cfg["cases"] if cfg.path(p).exists()])
+                    summary = run_suite(cfg, cases, ScriptedAgent(tree=tree), None, store, trials=1, workers=2, label="studio", quiet=True)
                     if not store.baseline():
                         store.set_baseline(summary["run_id"])
-                    self._send_json({"ok": True, "run_id": summary["run_id"], "state": collect_studio_state(cfg, store)})
+                    self._send_json({"ok": True, "run_id": summary["run_id"], "state": collect_studio_state(cfg, store, scan_code=True, run_code_checks=True)})
                     return
 
                 if parsed.path == "/api/hook":

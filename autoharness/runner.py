@@ -22,6 +22,9 @@ from .trace import Trace
 
 # $ per 1M tokens (input, output). Used only for the cost estimate in reports.
 PRICES = {
+    "opus": (4.0, 20.0),
+    "sonnet": (2.0, 10.0),
+    "haiku": (0.10, 0.50),
     "claude-fable-5-2": (8.0, 40.0),
     "claude-opus-5-5": (4.0, 20.0),
     "claude-sonnet-5-5": (2.0, 10.0),

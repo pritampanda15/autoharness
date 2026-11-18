@@ -69,6 +69,9 @@ summary::-webkit-details-marker{display:none}
 pre{white-space:pre-wrap;word-break:break-word;font:12.5px/1.55 "SF Mono",ui-monospace,Menlo,monospace;background:var(--chip);padding:10px 12px;border-radius:10px;max-height:300px;overflow:auto;margin:6px 0 0}
 a{color:var(--blue);text-decoration:none;font-weight:600}
 a:hover{text-decoration:underline}
+.btn-fix{border:none;cursor:pointer;display:inline-flex;align-items:center;gap:6px;padding:8px 16px;border-radius:999px;font-size:13px;font-weight:700;background:linear-gradient(180deg,#ff3b30 0%,#d70015 100%);color:#fff;box-shadow:0 5px 15px rgba(225,29,72,0.28)}
+.btn-fix-sm{border:none;cursor:pointer;display:inline-flex;align-items:center;gap:4px;padding:4px 10px;border-radius:999px;font-size:11.5px;font-weight:700;background:linear-gradient(180deg,#ff3b30 0%,#d70015 100%);color:#fff}
+.fix-alert{padding:16px 20px;border-radius:18px;border:1.5px solid rgba(225,29,72,0.32);background:color-mix(in srgb,var(--bad-soft) 55%,var(--card));display:flex;align-items:center;justify-content:space-between;gap:14px;margin:16px 0;box-shadow:var(--shadow)}
 """
 
 
@@ -96,6 +99,11 @@ def _ring(pct: float, color: str) -> str:
 def render(summary: dict[str, Any], results: list[dict[str, Any]], cmp: dict[str, Any] | None,
            calibration: dict[str, Any] | None) -> str:
     meta = summary["meta"]
+    failing_cases = [cid for cid, r in summary.get("cases", {}).items() if r.get("pass_rate", 1.0) < 1.0]
+    top_fix_btn = (
+        f"<button class='btn-fix' onclick=\"reportAutoFix('')\">⚡ Auto-Fix Failures ({len(failing_cases)})</button>"
+        if failing_cases else ""
+    )
     out = [
         "<!doctype html><html lang='en'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>",
         f"<title>AutoHarness Run · {_e(summary['run_id'])}</title><style>{CSS}</style></head><body>",
@@ -107,13 +115,24 @@ def render(summary: dict[str, Any], results: list[dict[str, Any]], cmp: dict[str
         "<path d='M 27 49 A 40 40 0 0 1 64 24' fill='none' stroke='#EA4335' stroke-width='8' stroke-linecap='round'/>"
         "<polygon points='64,51 77,64 64,77 51,64' fill='#4285F4'/></svg>",
         f"<span>Auto<span style='color:var(--blue)'>Harness</span> Report</span></div>"
-        f"<span class='pill p-blue mono'>{_e(summary['run_id'])}</span></header><main>",
+        f"<div style='display:flex;align-items:center;gap:10px'>{top_fix_btn}<span class='pill p-blue mono'>{_e(summary['run_id'])}</span></div></header><main>",
         f"<h1>Evaluation Run · {_e(summary['run_id'])}</h1>",
         f"<div class='muted'>Substrate <b>{_e(meta['agent'].get('type'))}</b> ({_e(meta['agent'].get('model', 'cli'))}) · "
         f"Harness <span class='mono'>{_e(meta.get('harness_fingerprint') or '–')}</span> · "
         f"Judge <b>{_e(meta['judge']['model'])}</b> · {meta['n_cases']} cases, {meta['n_trials']} trials · {summary['wall_time_s']}s</div>",
-        "<div class='banners'>",
     ]
+    if failing_cases:
+        out.append(
+            "<div class='fix-alert' id='fix-status-box'><div>"
+            f"<b>⚡ {len(failing_cases)} Failing Case(s) Ready for Automatic Repair:</b> "
+            f"<span class='mono' style='font-size:12.5px'>{_e(', '.join(failing_cases[:8]))}</span>"
+            "<div class='muted' style='font-size:12.5px;margin-top:2px'>Repairs broken modules with write-locked tests or runs Propose-Probe-Compose against hidden holdouts.</div>"
+            "</div>"
+            "<button class='btn-fix' onclick=\"reportAutoFix('')\">⚡ Auto-Fix Now</button></div>"
+        )
+    else:
+        out.append("<div id='fix-status-box'></div>")
+    out.append("<div class='banners'>")
 
     if cmp:
         pcls = "p-good" if cmp["gate_passed"] else "p-bad"
@@ -158,7 +177,7 @@ def render(summary: dict[str, Any], results: list[dict[str, Any]], cmp: dict[str
     rows_by_case = {r["case"]: r for r in (cmp["rows"] if cmp else [])}
     out.append(
         "<h2>Case Summary</h2><div class='card-wrap'><table>"
-        "<tr><th>Case</th><th>Split</th><th>Pass Rate</th><th>vs Baseline</th><th>Score</th><th>Turns</th><th>Tokens</th><th>Failing Checks</th></tr>"
+        "<tr><th>Case</th><th>Split</th><th>Pass Rate</th><th>vs Baseline</th><th>Score</th><th>Turns</th><th>Tokens</th><th>Failing Checks</th><th>Action</th></tr>"
     )
     for cid, row in sorted(summary["cases"].items(), key=lambda kv: (kv[1]["pass_rate"], kv[0])):
         cr = rows_by_case.get(cid)
@@ -175,12 +194,16 @@ def render(summary: dict[str, Any], results: list[dict[str, Any]], cmp: dict[str
         sp_cls = "p-blue" if split_val == "dev" else "p-warn"
         fails = "".join(f"<span class='chip'>{_e(k)} ×{v}</span>" for k, v in row["failed_checks"].items()) or "<span class='muted'>none</span>"
         review = f" <span class='pill p-warn'>{row['needs_review']} review</span>" if row["needs_review"] else ""
+        act = (
+            f"<button class='btn-fix-sm' onclick=\"reportAutoFix('{_e(cid)}')\">⚡ Auto-Fix</button>"
+            if row["pass_rate"] < 1 else "<span class='good mono' style='font-size:12px'>✓</span>"
+        )
         out.append(
             f"<tr><td><a href='#c-{_e(cid)}'>{_e(cid)}</a>{review}<div class='muted' style='font-size:12.5px'>{_e(row['description'])}</div></td>"
             f"<td><span class='pill {sp_cls}'>{_e(split_val)}</span></td>"
             f"<td><span class='pill {pr_cls}'>{_pct(row['pass_rate'])}</span></td><td>{vs}</td>"
             f"<td class='mono'>{row['mean_score']:.2f}</td><td class='mono'>{row['mean_turns']}</td>"
-            f"<td class='mono'>{row['mean_tokens']:,}</td><td>{fails}</td></tr>"
+            f"<td class='mono'>{row['mean_tokens']:,}</td><td>{fails}</td><td>{act}</td></tr>"
         )
     out.append("</table></div>")
 
@@ -236,6 +259,16 @@ def render(summary: dict[str, Any], results: list[dict[str, Any]], cmp: dict[str
         "document.querySelectorAll('details.trial-card').forEach(d=>{"
         "const show=m==='all'||(m==='fail'&&d.dataset.pass==='0')||(m==='review'&&d.dataset.rev==='1');"
         "d.style.display=show?'block':'none';});}"
+        "async function reportAutoFix(caseId){"
+        "const box=document.getElementById('fix-status-box');"
+        "box.className='fix-alert';box.innerHTML='<div><b>⏳ Running Automatic Repair...</b><div class=muted style=font-size:12.5px>Isolating failure, locking tests, and probing repairs via AutoHarness Studio...</div></div>';"
+        "for(const port of [8484,8485]){"
+        "try{const r=await fetch('http://127.0.0.1:'+port+'/api/autofix',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({target_case:caseId||null})});"
+        "if(r.ok){const d=await r.json();const aft=d.after_pass_rate!=null?Math.round(d.after_pass_rate*100)+'%':'done';"
+        "box.innerHTML='<div><b class=good>✓ Auto-Fix Finished ('+d.status+') · Updated Pass Rate: '+aft+'</b><div class=muted style=font-size:12.5px>Open <a href=http://127.0.0.1:'+port+' target=_blank>AutoHarness Studio</a> to inspect diffs & traces.</div></div>';return;}}catch(e){}}"
+        "if(navigator.clipboard)navigator.clipboard.writeText('autoharness heal --with-harness');"
+        "box.innerHTML='<div><b>Start Studio Server or Run CLI Fix</b><div class=muted style=font-size:12.5px>Copied <code>autoharness heal --with-harness</code> to clipboard (or run <code>autoharness studio</code> for live 1-click browser repairs).</div></div>';"
+        "}"
         "</script></main></body></html>"
     )
     return "\n".join(out)

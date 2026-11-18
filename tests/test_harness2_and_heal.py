@@ -232,4 +232,84 @@ def test_cli_new_commands(tmp_path, capsys):
 
     studio_out = tmp_path / "studio.html"
     assert cli.main(["--config", str(tmp_path / "autoharness.yaml"), "studio", "--export", str(studio_out), "--no-open"]) == 0
-    assert studio_out.exists() and "AutoHarness Studio" in studio_out.read_text()
+    html_txt = studio_out.read_text()
+    assert studio_out.exists() and "AutoHarness Studio" in html_txt
+    assert "triggerAutoFix" in html_txt and "btn-top-autofix" in html_txt
+
+
+def test_studio_immediate_autofix_repairs_failing_test_and_module(tmp_path):
+    from autoharness.studio import run_immediate_autofix
+    from autoharness.trace import ToolCall, Trace
+
+    hdir = tmp_path / "harnesses" / "h2"
+    HarnessTree.scaffold(hdir)
+    (hdir / "system.md").write_text("You are a coding assistant.\n")
+
+    # Broken Python module + locked unit test
+    (tmp_path / "pkg").mkdir()
+    (tmp_path / "pkg" / "calc.py").write_text("def double(x: int) -> int:\n    return x * 3\n")
+    (tmp_path / "tests").mkdir()
+    locked_test = "from pkg.calc import double\n\ndef test_double():\n    assert double(4) == 8\n"
+    (tmp_path / "tests" / "test_calc.py").write_text(locked_test)
+
+    # Failing dev case in the evaluation suite
+    (tmp_path / "cases").mkdir()
+    (tmp_path / "cases" / "qa.yaml").write_text(
+        "id: quick-qa\nsplit: dev\nprompt: Port?\nchecks:\n"
+        "  - {type: output_max_chars, value: 15}\nmock:\n  output: '443'\n"
+    )
+    (tmp_path / "autoharness.yaml").write_text(
+        "cases: [cases]\ncode_paths: [pkg]\ntrials: 1\n"
+        "agent:\n  type: scripted\n  system_prompt_file: harnesses/h2\n"
+        "fixer:\n  editable: [harnesses/h2]\n  candidates: 1\n  compose: false\n"
+    )
+    cfg = load_config(tmp_path / "autoharness.yaml")
+    store = Store(cfg.path("runs"))
+
+    class _DualAgent:
+        def __init__(self, c):
+            self.prompt = HarnessTree.load(c.path("harnesses/h2")).compile_prompt()
+
+        def run(self, case, sb, trial):
+            # If invoked inside heal_module_isolated, repair pkg/calc.py
+            calc_file = sb.dir / "pkg" / "calc.py"
+            if calc_file.exists():
+                calc_file.write_text("def double(x: int) -> int:\n    return x * 2\n")
+                return Trace(
+                    case_id=case.id,
+                    trial=trial,
+                    workdir=str(sb.dir),
+                    turns=1,
+                    final_output="Fixed double()",
+                    tool_calls=[ToolCall("write_file", {"path": "pkg/calc.py"}, "ok", False)],
+                )
+            t = ScriptedAgent().run(case, sb, trial)
+            if "terse-answer-rule" not in self.prompt.lower():
+                t.final_output = "The HTTPS port is 443 in the production configuration."
+            return t
+
+    class _OneClickFixer:
+        def propose(self, files, failures, passing, history, lessons, k=1):
+            target = "harnesses/h2/skills.md"
+            return [Proposal("Add terse-answer-rule", {target: files[target] + "\nUse terse-answer-rule.\n"}, "short output", approach="terse skill")]
+
+        def reflect(self, lessons, session):
+            return [], 0.0
+
+    # Seed failing run -> verify report.render includes immediate Auto-Fix button
+    from autoharness import report as reportmod
+
+    base = loopmod.run_once(cfg, store, "failing-seed", agent_factory=_DualAgent, quiet=True)
+    assert base["pass_rate"] == 0.0
+    report_html = reportmod.render(base, store.load_results(store.run_dir(base["run_id"])), None, None)
+    assert "reportAutoFix" in report_html and "Auto-Fix Now" in report_html
+
+    # Click the immediate Auto-Fix button!
+    res = run_immediate_autofix(cfg, store, agent_factory=_DualAgent, fixer=_OneClickFixer())
+    assert res["ok"] is True
+    assert res["status"] == "fixed"
+    assert res["before_pass_rate"] == 0.0
+    assert res["after_pass_rate"] == 1.0
+    assert len(res["healed_modules"]) == 1
+    assert "x * 2" in (tmp_path / "pkg" / "calc.py").read_text()
+    assert (tmp_path / "tests" / "test_calc.py").read_text() == locked_test
