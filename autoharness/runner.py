@@ -140,7 +140,10 @@ def summarise(run_id: str, cases: list[Case], results: list[TrialResult], cfg, m
     out_tok = sum(r.output_tokens for r in results)
     pin, pout = PRICES.get(cfg["agent"].get("model", ""), (0.0, 0.0))
     reported = sum(r.agent_cost_usd for r in results)
-    agent_cost = reported if reported else (in_tok * pin + out_tok * pout) / 1e6
+    if cfg["agent"].get("auth_mode") == "subscription" or cfg["agent"].get("type") in ("ollama", "opensource", "scripted"):
+        agent_cost = 0.0
+    else:
+        agent_cost = reported if reported else (in_tok * pin + out_tok * pout) / 1e6
     return {
         "run_id": run_id,
         "meta": meta,

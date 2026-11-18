@@ -369,3 +369,85 @@ def test_universal_model_substrates_and_oss_tool_calls(tmp_path):
     assert reloaded["agent"]["type"] == "ollama"
     assert reloaded["agent"]["model"] == "deepseek-r1:14b"
     assert reloaded["fixer"]["backend"] == "ollama"
+
+
+def test_subscription_isolation_mcp_server_and_universal_plugin_installer(tmp_path, monkeypatch):
+    import json
+    from autoharness.agents import CopilotCliAgent, build_agent
+    from autoharness.cases import Case
+    from autoharness.mcp_server import MCPServer
+    from autoharness.plugin_installer import install_plugin_target, plugin_status
+    from autoharness.providers import SUBSCRIPTION_STRIP_KEYS, subscription_clean_env
+    from autoharness.sandbox import Sandbox
+
+    # 1. Subscription mode strips pay-per-token API keys both in providers and sandbox
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-paid-key")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-paid-openai")
+    monkeypatch.setenv("GEMINI_API_KEY", "paid-gemini-key")
+    clean = subscription_clean_env()
+    for k in SUBSCRIPTION_STRIP_KEYS:
+        assert k not in clean
+
+    case = Case(id="sub-env", description="", prompt="check", files={}, setup_commands=[], checks=[], split="dev")
+    with Sandbox(case, 1) as sb:
+        r = sb.run(
+            "python3 -c \"import os; print(os.environ.get('OPENAI_API_KEY', 'STRIPPED'))\"",
+            unset_env=SUBSCRIPTION_STRIP_KEYS,
+        )
+        assert r.stdout.strip() == "STRIPPED"
+
+    # Switch to subscription preset via CLI and verify auth_mode: subscription persists
+    cfg_file = tmp_path / "autoharness.yaml"
+    cfg_file.write_text("cases: [cases]\n")
+    assert cli.main(["--config", str(cfg_file), "models", "--use", "claude-sub"]) == 0
+    sub_cfg = load_config(cfg_file)
+    assert sub_cfg["agent"]["auth_mode"] == "subscription"
+    assert isinstance(build_agent({"type": "copilot", "model": "claude-sonnet-4.5"}, tmp_path), CopilotCliAgent)
+
+    # 2. Universal Plugin Installer writes valid manifests across all 6 ecosystems
+    ag_dir = tmp_path / "agy_plugins"
+    written = install_plugin_target("all", tmp_path, antigravity_plugins_dir=ag_dir)
+    assert len(written) == 6
+    st = plugin_status(tmp_path, antigravity_plugins_dir=ag_dir)
+    assert all(st.values())
+    ag_manifest = json.loads((ag_dir / "autoharness" / "plugin.json").read_text())
+    assert ag_manifest["name"] == "autoharness"
+    assert "autoharness_mcp" in json.loads((ag_dir / "autoharness" / "mcp_config.json").read_text())["mcpServers"]
+    assert "[mcp_servers.autoharness_mcp]" in (tmp_path / ".codex" / "config.toml").read_text()
+
+    # 3. MCP JSON-RPC 2.0 server (`initialize`, `tools/list`, `snapshot_test_locks`, anti-gaming `verify_repair`)
+    (tmp_path / "app").mkdir()
+    (tmp_path / "app" / "math_mod.py").write_text("def inc(x: int) -> int:\n    return x + 1\n")
+    (tmp_path / "tests").mkdir()
+    tfile = tmp_path / "tests" / "test_math.py"
+    tfile.write_text("from app.math_mod import inc\n\ndef test_inc():\n    assert inc(2) == 3\n")
+    (tmp_path / "cases").mkdir()
+    (tmp_path / "autoharness.yaml").write_text("cases: [cases]\ncode_paths: [app]\n")
+
+    srv = MCPServer(tmp_path)
+    init_resp = srv.handle_request({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}})
+    assert init_resp["result"]["serverInfo"]["name"] == "autoharness-mcp"
+
+    tools_resp = srv.handle_request({"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
+    tool_names = {t["name"] for t in tools_resp["result"]["tools"]}
+    assert {"autoharness_status", "autoharness_snapshot_test_locks", "autoharness_verify_repair", "autoharness_autofix"} <= tool_names
+
+    snap_resp = srv.handle_request({"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "autoharness_snapshot_test_locks", "arguments": {}}})
+    locks = json.loads(snap_resp["result"]["content"][0]["text"])["locked_test_hashes"]
+    assert "tests/test_math.py" in locks
+
+    ok_verify = srv.handle_request({
+        "jsonrpc": "2.0", "id": 4, "method": "tools/call",
+        "params": {"name": "autoharness_verify_repair", "arguments": {"module_path": "app/math_mod.py", "locked_test_hashes": locks}},
+    })
+    assert json.loads(ok_verify["result"]["content"][0]["text"])["verified"] is True
+
+    # Tamper with locked unit test -> MCP anti-gaming gate MUST block!
+    tfile.write_text("def test_inc():\n    assert True\n")
+    bad_verify = srv.handle_request({
+        "jsonrpc": "2.0", "id": 5, "method": "tools/call",
+        "params": {"name": "autoharness_verify_repair", "arguments": {"module_path": "app/math_mod.py", "locked_test_hashes": locks}},
+    })
+    bad_payload = json.loads(bad_verify["result"]["content"][0]["text"])
+    assert bad_payload["verified"] is False
+    assert "ANTI-GAMING BLOCK" in bad_payload["reason"]

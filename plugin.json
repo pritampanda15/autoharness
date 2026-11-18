@@ -1,0 +1,17 @@
+{
+  "name": "autoharness",
+  "displayName": "AutoHarness",
+  "version": "0.3.0",
+  "description": "Autonomous 8-component Harness² engineering, write-locked code self-healing, and 3-layer evaluation MCP server & skill.",
+  "logo": "assets/logo.svg",
+  "author": {
+    "name": "pritampanda15",
+    "url": "https://github.com/pritampanda15"
+  },
+  "repository": "https://github.com/pritampanda15/autoharness",
+  "suggestedPrompts": [
+    "Scan this repository with AutoHarness and fix any broken imports or failing tests",
+    "Synthesize dev and hidden holdout evaluation cases for this codebase",
+    "Inspect the 8-component Harness² tree and distill lessons from recent runs"
+  ]
+}

@@ -39,8 +39,21 @@ class Sandbox:
             raise PermissionError(f"path escapes sandbox: {rel}")
         return p
 
-    def run(self, cmd: str, timeout: float = 60, env: dict[str, str] | None = None) -> subprocess.CompletedProcess:
-        full_env = {**os.environ, **env} if env else None
+    def run(
+        self,
+        cmd: str,
+        timeout: float = 60,
+        env: dict[str, str] | None = None,
+        unset_env: tuple[str, ...] | list[str] = (),
+    ) -> subprocess.CompletedProcess:
+        if env or unset_env:
+            full_env = dict(os.environ)
+            for k in unset_env:
+                full_env.pop(k, None)
+            if env:
+                full_env.update(env)
+        else:
+            full_env = None
         try:
             return subprocess.run(
                 cmd, shell=True, cwd=self.dir, capture_output=True, text=True, timeout=timeout, env=full_env

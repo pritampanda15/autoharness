@@ -1,0 +1,8 @@
+{
+  "name": "autoharness",
+  "version": "0.3.0",
+  "description": "AutoHarness MCP + 8-component Harness² & write-locked code self-healing skill.",
+  "author": {
+    "name": "pritampanda15"
+  }
+}

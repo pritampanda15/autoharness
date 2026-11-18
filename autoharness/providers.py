@@ -26,37 +26,64 @@ from .config import claude_cli
 
 SUBSTRATE_PRESETS: list[dict[str, Any]] = [
     {
-        "id": "auto",
-        "label": "Auto-Failover Router",
-        "family": "Multi-Model Router",
+        "id": "subscription-pool",
+        "label": "Subscription Pool Router",
+        "family": "Flat-Rate Subscriptions",
         "agent_type": "auto",
+        "auth_mode": "subscription",
         "model": "auto",
         "fixer_backend": "auto",
         "judge_backend": "auto",
-        "badge": "Smart Failover",
-        "description": "Automatically selects available CLI, API, or local Ollama model and fails over on rate limits.",
+        "badge": "Subscriptions · $0 API",
+        "description": "Uses your flat-rate OAuth subscriptions (Claude Pro/Max/Team, ChatGPT Plus/Pro, Gemini Pro, Copilot) + local Ollama, stripping API keys so you never pay per token.",
     },
     {
-        "id": "codex",
-        "label": "OpenAI Codex",
-        "family": "Codex CLI / API",
+        "id": "claude-sub",
+        "label": "Claude Pro / Max / Team",
+        "family": "Flat-Rate Subscription",
+        "agent_type": "command",
+        "auth_mode": "subscription",
+        "model": "opus",
+        "fixer_backend": "claude-cli",
+        "judge_backend": "claude-cli",
+        "badge": "Subscription · $0 API",
+        "description": "Uses your claude.ai Pro, Max, or Team subscription login (claude login) with API keys isolated.",
+    },
+    {
+        "id": "codex-sub",
+        "label": "ChatGPT Plus / Pro (Codex)",
+        "family": "Flat-Rate Subscription",
         "agent_type": "codex",
-        "model": "codex-mini-latest",
+        "auth_mode": "subscription",
+        "model": "gpt-5-codex",
         "fixer_backend": "codex-cli",
         "judge_backend": "codex-cli",
-        "badge": "Codex",
-        "description": "Runs codex exec --full-auto --json when Codex CLI is installed, or OpenAI API (OPENAI_API_KEY).",
+        "badge": "Subscription · $0 API",
+        "description": "Uses your ChatGPT Plus, Pro, or Team OAuth subscription via Codex CLI (codex login) with zero API billing.",
     },
     {
-        "id": "gemini",
-        "label": "Google Gemini 2.5 Pro",
-        "family": "Gemini CLI / API",
-        "agent_type": "gemini",
+        "id": "gemini-sub",
+        "label": "Google AI Pro / Ultra (Gemini)",
+        "family": "Flat-Rate Subscription",
+        "agent_type": "gemini-cli",
+        "auth_mode": "subscription",
         "model": "gemini-2.5-pro",
-        "fixer_backend": "gemini",
-        "judge_backend": "gemini",
-        "badge": "Gemini",
-        "description": "Uses Gemini CLI (gemini -p) or Google Generative Language API (GEMINI_API_KEY).",
+        "fixer_backend": "gemini-cli",
+        "judge_backend": "gemini-cli",
+        "badge": "Subscription · $0 API",
+        "description": "Uses your Google account / Google One AI Pro OAuth login via Gemini CLI (gemini) without GEMINI_API_KEY.",
+    },
+    {
+        "id": "copilot-sub",
+        "label": "GitHub Copilot Pro / Pro+",
+        "family": "Flat-Rate Subscription",
+        "agent_type": "copilot",
+        "auth_mode": "subscription",
+        "model": "claude-sonnet-4.5",
+        "fixer_backend": "copilot-cli",
+        "judge_backend": "copilot-cli",
+        "badge": "Subscription · $0 API",
+        "description": "Uses your GitHub Copilot subscription via GitHub Copilot CLI (copilot -p) authenticated with gh auth login.",
     },
     {
         "id": "ollama-qwen",
@@ -83,18 +110,6 @@ SUBSTRATE_PRESETS: list[dict[str, Any]] = [
         "description": "Local reasoning & code repair model via Ollama with automatic <think> stripping & tool loop.",
     },
     {
-        "id": "ollama-llama",
-        "label": "Llama 3.3 / Gemma 3 (Ollama)",
-        "family": "Open-Source Local",
-        "agent_type": "ollama",
-        "model": "llama3.3",
-        "base_url": "http://127.0.0.1:11434",
-        "fixer_backend": "ollama",
-        "judge_backend": "ollama",
-        "badge": "Open-Source · $0",
-        "description": "Meta Llama 3.3 / Google Gemma 3 running locally via Ollama with zero rate limits.",
-    },
-    {
         "id": "vllm-local",
         "label": "vLLM / LM Studio / llama.cpp",
         "family": "Open-Source Server",
@@ -108,26 +123,16 @@ SUBSTRATE_PRESETS: list[dict[str, Any]] = [
     },
     {
         "id": "openrouter-oss",
-        "label": "OpenRouter OSS (Qwen3 / DeepSeek / Llama 4)",
-        "family": "Open-Source Cloud",
+        "label": "OpenRouter / API Keys (Pay-Per-Token)",
+        "family": "API Billing",
         "agent_type": "openrouter",
+        "auth_mode": "api",
         "model": "qwen/qwen3-coder",
         "base_url": "https://openrouter.ai/api/v1",
         "fixer_backend": "openrouter",
         "judge_backend": "openrouter",
-        "badge": "OpenRouter OSS",
-        "description": "Hosted open-weights frontier models (qwen3-coder, deepseek-chat-v3, llama-4-maverick) via OPENROUTER_API_KEY.",
-    },
-    {
-        "id": "claude",
-        "label": "Claude Code (Opus / Sonnet)",
-        "family": "Claude CLI / API",
-        "agent_type": "command",
-        "model": "opus",
-        "fixer_backend": "claude-cli",
-        "judge_backend": "claude-cli",
-        "badge": "Claude",
-        "description": "Anthropic Claude Code CLI (claude -p) or ANTHROPIC_API_KEY SDK substrate.",
+        "badge": "API Key",
+        "description": "Optional pay-as-you-go API mode (OPENROUTER_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY, ANTHROPIC_API_KEY).",
     },
 ]
 
@@ -138,8 +143,19 @@ def find_cli(name: str, explicit: str | None = None) -> str | None:
     hit = shutil.which(name)
     if hit:
         return hit
-    for prefix in ("/opt/homebrew/bin", "/usr/local/bin", str(Path.home() / ".local/bin"), str(Path.home() / ".npm-global/bin")):
-        cand = Path(prefix) / name
+    extra_dirs = [
+        Path("/opt/homebrew/bin"),
+        Path("/usr/local/bin"),
+        Path.home() / ".local/bin",
+        Path.home() / ".npm-global/bin",
+        Path.home() / ".bun/bin",
+        Path("/Applications/Codex.app/Contents/Resources"),
+    ]
+    nvm_root = Path.home() / ".nvm/versions/node"
+    if nvm_root.exists():
+        extra_dirs.extend(sorted((p / "bin" for p in nvm_root.iterdir() if (p / "bin").exists()), reverse=True))
+    for prefix in extra_dirs:
+        cand = prefix / name
         if cand.exists():
             return str(cand)
     return None
@@ -160,8 +176,90 @@ def probe_local_endpoint(url: str, timeout: float = 0.35) -> list[str]:
     return []
 
 
+SUBSCRIPTION_STRIP_KEYS: tuple[str, ...] = (
+    "ANTHROPIC_API_KEY",
+    "OPENAI_API_KEY",
+    "GEMINI_API_KEY",
+    "GOOGLE_API_KEY",
+)
+
+
+def subscription_clean_env(extra: dict[str, str] | None = None) -> dict[str, str]:
+    """Return a copy of os.environ with pay-per-token API keys stripped so CLIs strictly use OAuth subscriptions."""
+    env = dict(os.environ)
+    for k in SUBSCRIPTION_STRIP_KEYS:
+        env.pop(k, None)
+    if extra:
+        env.update(extra)
+    return env
+
+
+def detect_subscriptions() -> dict[str, dict[str, Any]]:
+    """Detect active flat-rate OAuth subscriptions across Claude, ChatGPT/Codex, Google Gemini, and GitHub Copilot."""
+    subs: dict[str, dict[str, Any]] = {}
+
+    # 1. Claude Pro / Max / Team via `claude auth status`
+    claude_bin = find_cli("claude")
+    claude_info: dict[str, Any] = {"active": False, "plan": "Not logged in", "method": "claude login"}
+    if claude_bin:
+        try:
+            r = subprocess.run(
+                [claude_bin, "auth", "status"],
+                capture_output=True,
+                text=True,
+                timeout=1.5,
+                env=subscription_clean_env(),
+            )
+            data = json.loads(r.stdout.strip() or "{}")
+            if data.get("loggedIn"):
+                stype = str(data.get("subscriptionType") or "pro").capitalize()
+                org = data.get("orgName") or data.get("email") or "claude.ai"
+                claude_info = {
+                    "active": True,
+                    "plan": f"Claude {stype}",
+                    "account": str(org),
+                    "method": str(data.get("authMethod") or "claude.ai"),
+                }
+        except Exception:
+            pass
+    subs["claude"] = claude_info
+
+    # 2. ChatGPT Plus / Pro / Team via ~/.codex/auth.json + `codex` CLI
+    codex_auth = (Path.home() / ".codex" / "auth.json").exists()
+    codex_bin = find_cli("codex")
+    subs["codex"] = {
+        "active": bool(codex_auth and codex_bin),
+        "oauth_cached": codex_auth,
+        "plan": "ChatGPT Plus / Pro" if (codex_auth and codex_bin) else ("OAuth Ready (install @openai/codex)" if codex_auth else "Run codex login"),
+        "method": "OAuth (~/.codex/auth.json)",
+    }
+
+    # 3. Google AI Pro / Ultra via ~/.gemini/oauth_creds.json or google_accounts.json + `gemini` CLI
+    gem_dir = Path.home() / ".gemini"
+    gem_auth = (gem_dir / "oauth_creds.json").exists() or (gem_dir / "google_accounts.json").exists()
+    gem_bin = find_cli("gemini")
+    subs["gemini"] = {
+        "active": bool(gem_auth and gem_bin),
+        "oauth_cached": gem_auth,
+        "plan": "Google AI Pro / Ultra" if (gem_auth and gem_bin) else ("OAuth Ready (install @google/gemini-cli)" if gem_auth else "Run gemini to sign in"),
+        "method": "OAuth (~/.gemini)",
+    }
+
+    # 4. GitHub Copilot Pro / Pro+ via GitHub CLI auth (`~/.config/gh/hosts.yml`) + `copilot`
+    gh_hosts = Path.home() / ".config" / "gh" / "hosts.yml"
+    gh_logged_in = gh_hosts.exists()
+    copilot_bin = find_cli("copilot")
+    subs["copilot"] = {
+        "active": bool(gh_logged_in and copilot_bin),
+        "gh_authenticated": gh_logged_in,
+        "plan": "GitHub Copilot" if (gh_logged_in and copilot_bin) else ("GitHub Auth Ready (install `copilot`)" if gh_logged_in else "Run `gh auth login`"),
+        "method": "GitHub OAuth",
+    }
+    return subs
+
+
 def discover_providers() -> dict[str, Any]:
-    """Detect installed CLIs, configured API keys, and running local open-source model daemons."""
+    """Detect installed CLIs, flat-rate subscriptions, configured API keys, and running local OSS daemons."""
     ollama_url = (os.environ.get("OLLAMA_HOST") or "http://127.0.0.1:11434").rstrip("/")
     if not ollama_url.startswith("http"):
         ollama_url = f"http://{ollama_url}"
@@ -173,6 +271,7 @@ def discover_providers() -> dict[str, Any]:
         "claude": find_cli("claude"),
         "codex": find_cli("codex"),
         "gemini": find_cli("gemini"),
+        "copilot": find_cli("copilot"),
         "ollama": find_cli("ollama"),
     }
     keys = {
@@ -184,6 +283,7 @@ def discover_providers() -> dict[str, Any]:
     return {
         "clis": {k: bool(v) for k, v in clis.items()},
         "cli_paths": {k: v for k, v in clis.items() if v},
+        "subscriptions": detect_subscriptions(),
         "api_keys": keys,
         "local_servers": {
             "ollama": {"online": bool(ollama_models), "url": ollama_url, "models": ollama_models[:12]},
@@ -208,7 +308,7 @@ def apply_substrate_selection(
         preset = {
             "id": preset_id,
             "label": preset_id,
-            "agent_type": preset_id if preset_id in ("codex", "gemini", "gemini-cli", "ollama", "vllm", "lmstudio", "openrouter", "openai", "claude", "auto") else "ollama",
+            "agent_type": preset_id if preset_id in ("codex", "gemini", "gemini-cli", "copilot", "ollama", "vllm", "lmstudio", "openrouter", "openai", "claude", "command", "auto") else "ollama",
             "model": custom_model or preset_id,
             "fixer_backend": "auto",
             "judge_backend": "auto",
@@ -216,6 +316,7 @@ def apply_substrate_selection(
 
     model = (custom_model or preset.get("model") or "auto").strip()
     base_url = (custom_base_url or preset.get("base_url") or "").strip()
+    auth_mode = preset.get("auth_mode")
 
     from .config import load_config
 
@@ -228,6 +329,10 @@ def apply_substrate_selection(
     ):
         disk_raw.setdefault(sec, {})
         disk_raw[sec].update(vals)
+        if auth_mode:
+            disk_raw[sec]["auth_mode"] = auth_mode
+        else:
+            disk_raw[sec].pop("auth_mode", None)
         if base_url:
             disk_raw[sec]["base_url"] = base_url
         elif sec == "agent" and preset["agent_type"] not in ("ollama", "vllm", "lmstudio", "openrouter", "openai"):
@@ -305,8 +410,10 @@ def complete_structured(
         return _call_codex_cli(cfg, prompt, schema, system)
     if backend == "gemini-cli":
         return _call_gemini_cli(cfg, prompt, schema, system)
+    if backend == "copilot-cli":
+        return _call_copilot_cli(cfg, prompt, schema, system)
     if backend == "gemini":
-        if not (cfg.get("api_key") or os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")) and find_cli("gemini"):
+        if (cfg.get("auth_mode") == "subscription" or not (cfg.get("api_key") or os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY"))) and find_cli("gemini"):
             return _call_gemini_cli(cfg, prompt, schema, system)
         return _call_gemini_http(cfg, prompt, schema, system)
     if backend == "ollama":
@@ -318,6 +425,8 @@ def complete_structured(
 
 def _auto_backend_order(cfg: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
     info = discover_providers()
+    sub_only = cfg.get("auth_mode") == "subscription"
+    sub_cfg = {**cfg, "auth_mode": "subscription"} if sub_only else cfg
     chain: list[tuple[str, dict[str, Any]]] = []
     if info["local_servers"]["ollama"]["online"]:
         m = info["local_servers"]["ollama"]["models"][0]
@@ -328,20 +437,22 @@ def _auto_backend_order(cfg: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]
     if info["local_servers"]["lmstudio"]["online"]:
         m = info["local_servers"]["lmstudio"]["models"][0]
         chain.append(("lmstudio", {**cfg, "model": m, "base_url": "http://127.0.0.1:1234/v1"}))
-    if info["api_keys"]["gemini"]:
+    if not sub_only and info["api_keys"]["gemini"]:
         chain.append(("gemini", {**cfg, "model": "gemini-2.5-pro"}))
     elif info["clis"]["gemini"]:
-        chain.append(("gemini-cli", {**cfg, "model": "gemini-2.5-pro"}))
-    if info["api_keys"]["openai"]:
+        chain.append(("gemini-cli", {**sub_cfg, "model": "gemini-2.5-pro"}))
+    if not sub_only and info["api_keys"]["openai"]:
         chain.append(("openai", {**cfg, "model": "gpt-4.1"}))
     elif info["clis"]["codex"]:
-        chain.append(("codex-cli", {**cfg, "model": "codex-mini-latest"}))
-    if info["api_keys"]["openrouter"]:
+        chain.append(("codex-cli", {**sub_cfg, "model": "gpt-5-codex"}))
+    if info["clis"]["copilot"]:
+        chain.append(("copilot-cli", {**sub_cfg, "model": "claude-sonnet-4.5"}))
+    if not sub_only and info["api_keys"]["openrouter"]:
         chain.append(("openrouter", {**cfg, "model": "qwen/qwen3-coder"}))
-    if info["api_keys"]["anthropic"]:
+    if not sub_only and info["api_keys"]["anthropic"]:
         chain.append(("api", {**cfg, "model": "claude-sonnet-4-6"}))
     if info["clis"]["claude"]:
-        chain.append(("claude-cli", {**cfg, "model": cfg.get("model") if cfg.get("model") not in (None, "auto") else "opus"}))
+        chain.append(("claude-cli", {**sub_cfg, "model": cfg.get("model") if cfg.get("model") not in (None, "auto") else "opus"}))
     return chain
 
 
@@ -366,8 +477,10 @@ def _call_claude_cli(cfg: dict[str, Any], prompt: str, schema: dict[str, Any], s
     ]
     if cfg.get("effort"):
         cmd += ["--effort", str(cfg["effort"])]
+    sub_mode = cfg.get("auth_mode") == "subscription"
+    env = subscription_clean_env() if sub_mode else None
     try:
-        r = subprocess.run(cmd, input=prompt, capture_output=True, text=True, timeout=cfg.get("timeout_s", 600))
+        r = subprocess.run(cmd, input=prompt, capture_output=True, text=True, timeout=cfg.get("timeout_s", 600), env=env)
     except FileNotFoundError:
         return {}, 0.0, "claude CLI not installed"
     except subprocess.TimeoutExpired:
@@ -376,7 +489,7 @@ def _call_claude_cli(cfg: dict[str, Any], prompt: str, schema: dict[str, Any], s
         out = json.loads(r.stdout)
     except json.JSONDecodeError:
         return {}, 0.0, f"claude cli exit {r.returncode}: {(r.stderr or r.stdout)[-400:]}"
-    cost = float(out.get("total_cost_usd") or 0.0)
+    cost = 0.0 if sub_mode else float(out.get("total_cost_usd") or 0.0)
     data = out.get("structured_output")
     if out.get("is_error") or not isinstance(data, dict):
         return {}, cost, f"claude cli: {out.get('subtype')} {str(out.get('result'))[:300]}"
@@ -385,10 +498,11 @@ def _call_claude_cli(cfg: dict[str, Any], prompt: str, schema: dict[str, Any], s
 
 def _call_codex_cli(cfg: dict[str, Any], prompt: str, schema: dict[str, Any], system: str) -> tuple[dict, float, str | None]:
     bin_path = find_cli("codex", cfg.get("cli"))
+    sub_mode = cfg.get("auth_mode") == "subscription"
     if not bin_path:
-        if os.environ.get("OPENAI_API_KEY"):
+        if not sub_mode and os.environ.get("OPENAI_API_KEY"):
             return _call_openai_compat("openai", {**cfg, "model": cfg.get("model", "o4-mini")}, prompt, schema, system)
-        return {}, 0.0, "codex CLI not installed and OPENAI_API_KEY not set"
+        return {}, 0.0, "codex CLI not installed (run `npm i -g @openai/codex && codex login`)"
     import tempfile
 
     with tempfile.NamedTemporaryFile("w+", suffix=".json", delete=False) as sf, \
@@ -401,8 +515,9 @@ def _call_codex_cli(cfg: dict[str, Any], prompt: str, schema: dict[str, Any], sy
     if cfg.get("model") and cfg["model"] not in ("auto", "opus", "sonnet"):
         cmd += ["-m", str(cfg["model"])]
     cmd.append(_schema_instruction(prompt, schema, system))
+    env = subscription_clean_env() if sub_mode else None
     try:
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=cfg.get("timeout_s", 600))
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=cfg.get("timeout_s", 600), env=env)
         txt = Path(out_file).read_text(errors="replace") if Path(out_file).exists() else r.stdout
     except subprocess.TimeoutExpired:
         return {}, 0.0, "codex CLI timed out"
@@ -418,14 +533,18 @@ def _call_codex_cli(cfg: dict[str, Any], prompt: str, schema: dict[str, Any], sy
 
 def _call_gemini_cli(cfg: dict[str, Any], prompt: str, schema: dict[str, Any], system: str) -> tuple[dict, float, str | None]:
     bin_path = find_cli("gemini", cfg.get("cli"))
+    sub_mode = cfg.get("auth_mode") == "subscription"
     if not bin_path:
-        return _call_gemini_http(cfg, prompt, schema, system)
+        if not sub_mode:
+            return _call_gemini_http(cfg, prompt, schema, system)
+        return {}, 0.0, "gemini CLI not installed (run `npm i -g @google/gemini-cli && gemini`)"
     full = _schema_instruction(prompt, schema, system)
     cmd = [bin_path, "-p", full, "-o", "json"]
     if cfg.get("model") and cfg["model"] not in ("auto", "opus", "sonnet"):
         cmd += ["-m", str(cfg["model"])]
+    env = subscription_clean_env() if sub_mode else None
     try:
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=cfg.get("timeout_s", 600))
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=cfg.get("timeout_s", 600), env=env)
     except subprocess.TimeoutExpired:
         return {}, 0.0, "gemini CLI timed out"
     raw = r.stdout.strip()
@@ -438,6 +557,25 @@ def _call_gemini_cli(cfg: dict[str, Any], prompt: str, schema: dict[str, Any], s
     obj = extract_json_object(raw)
     if obj is None:
         return {}, 0.0, f"gemini cli exit {r.returncode}: {(r.stderr or raw)[-350:]}"
+    return obj, 0.0, None
+
+
+def _call_copilot_cli(cfg: dict[str, Any], prompt: str, schema: dict[str, Any], system: str) -> tuple[dict, float, str | None]:
+    bin_path = find_cli("copilot", cfg.get("cli"))
+    if not bin_path:
+        return {}, 0.0, "GitHub Copilot CLI (`copilot`) not installed (run `npm i -g @github/copilot && gh auth login`)"
+    full = _schema_instruction(prompt, schema, system)
+    cmd = [bin_path, "-p", full, "-s"]
+    if cfg.get("model") and cfg["model"] not in ("auto", "opus", "sonnet"):
+        cmd += ["--model", str(cfg["model"])]
+    env = subscription_clean_env() if cfg.get("auth_mode") == "subscription" else None
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=cfg.get("timeout_s", 600), env=env)
+    except subprocess.TimeoutExpired:
+        return {}, 0.0, "copilot CLI timed out"
+    obj = extract_json_object(r.stdout.strip())
+    if obj is None:
+        return {}, 0.0, f"copilot cli exit {r.returncode}: {(r.stderr or r.stdout)[-350:]}"
     return obj, 0.0, None
 
 

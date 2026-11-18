@@ -43,7 +43,7 @@ from .synthesizer import scan_codebase, synthesize_cases
 from .tree import HarnessTree
 
 AGENT_CHOICES = [
-    "claude", "codex", "gemini", "gemini-cli",
+    "claude", "codex", "gemini", "gemini-cli", "copilot",
     "ollama", "vllm", "lmstudio", "openrouter", "opensource",
     "openai", "auto", "command", "scripted",
 ]
@@ -482,22 +482,51 @@ def cmd_models(args) -> int:
         preset = apply_substrate_selection(cfg, args.use, custom_model=args.model, custom_base_url=args.base_url)
         print(
             f"switched substrate -> {preset['label']} "
-            f"(agent={cfg['agent']['type']}, model={cfg['agent'].get('model')}, fixer={cfg['fixer'].get('backend')})"
+            f"(agent={cfg['agent']['type']}, model={cfg['agent'].get('model')}, "
+            f"auth_mode={cfg['agent'].get('auth_mode', 'auto')}, fixer={cfg['fixer'].get('backend')})"
         )
         return 0
 
     info = discover_providers()
-    print("Detected CLIs & API Keys:")
+    print("Flat-Rate Subscriptions ($0 API Billing):")
+    for k, sub in info.get("subscriptions", {}).items():
+        status = f"ACTIVE · {sub['plan']}" + (f" ({sub['account']})" if sub.get("account") else "") if sub.get("active") else f"inactive · {sub['plan']}"
+        print(f"  SUB  {k:<10} {status}")
+    print("\nDetected CLIs, Local Open-Source Servers & Optional API Keys:")
     for k, ok in info["clis"].items():
         print(f"  CLI  {k:<10} {'installed (' + info['cli_paths'][k] + ')' if ok else 'not found'}")
-    for k, ok in info["api_keys"].items():
-        print(f"  KEY  {k:<10} {'configured' if ok else 'not set'}")
     for srv, meta in info["local_servers"].items():
         status = f"ONLINE ({', '.join(meta['models'][:4]) or 'ready'})" if meta["online"] else "offline"
         print(f"  OSS  {srv:<10} {status} [{meta['url']}]")
+    for k, ok in info["api_keys"].items():
+        print(f"  KEY  {k:<10} {'configured' if ok else 'not set'}")
     print("\nAvailable Substrate Presets (`autoharness models --use <id>`):")
     for p in info["presets"]:
-        print(f"  {p['id']:<16} {p['label']:<38} [{p['badge']}]")
+        print(f"  {p['id']:<20} {p['label']:<36} [{p['badge']}]")
+    return 0
+
+
+def cmd_mcp(args) -> int:
+    from .mcp_server import MCPServer
+
+    MCPServer(Path(args.root)).serve_stdio()
+    return 0
+
+
+def cmd_plugin(args) -> int:
+    from .plugin_installer import install_plugin_target, plugin_status
+
+    ws = Path(args.dir).resolve()
+    if args.action == "status":
+        st = plugin_status(ws)
+        print(f"AutoHarness MCP & Plugin Status (workspace: {ws}):")
+        for k, ok in st.items():
+            print(f"  {k:<14} {'INSTALLED' if ok else 'not installed'}")
+        return 0
+    written = install_plugin_target(args.target, ws)
+    print(f"installed AutoHarness MCP + Skill plugin ({args.target}) -> {len(written)} target(s):")
+    for w in written:
+        print(f"  {w}")
     return 0
 
 
@@ -649,6 +678,21 @@ def main(argv: list[str] | None = None) -> int:
     st.add_argument("--export", metavar="HTML", help="export a standalone static HTML snapshot instead of serving")
     st.add_argument("--no-open", action="store_true", help="do not open browser automatically")
     st.set_defaults(fn=cmd_studio)
+
+    mcp_p = sub.add_parser("mcp", help="run AutoHarness as a Model Context Protocol (MCP) JSON-RPC 2.0 stdio server")
+    mcp_p.add_argument("--root", default=".", help="default repository directory for MCP tool calls")
+    mcp_p.set_defaults(fn=cmd_mcp)
+
+    plg = sub.add_parser("plugin", help="install AutoHarness as an MCP server + Agent Skill plugin for any AI tool")
+    plg.add_argument("action", nargs="?", choices=["install", "status"], default="install")
+    plg.add_argument(
+        "--target",
+        choices=["antigravity", "claude", "cursor", "vscode", "gemini", "codex", "all"],
+        default="all",
+        help="target AI IDE / CLI agent ecosystem (default: all)",
+    )
+    plg.add_argument("--dir", default=".", help="workspace directory for project-scoped MCP/skill files")
+    plg.set_defaults(fn=cmd_plugin)
 
     args = p.parse_args(argv)
     return args.fn(args)

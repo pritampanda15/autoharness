@@ -424,13 +424,23 @@ class CommandAgent:
             system_prompt_file=shlex.quote(spf_for_cmd),
             claude=shlex.quote(claude_cli(self.cfg.get("cli"))),
         )
+        from .providers import SUBSCRIPTION_STRIP_KEYS
+
+        sub_mode = self.cfg.get("auth_mode") == "subscription"
         start = time.time()
-        r = sandbox.run(cmd, timeout=self.cfg.get("timeout_s", 900), env={"AUTOHARNESS_PROMPT": case.prompt})
+        r = sandbox.run(
+            cmd,
+            timeout=self.cfg.get("timeout_s", 900),
+            env={"AUTOHARNESS_PROMPT": case.prompt},
+            unset_env=SUBSCRIPTION_STRIP_KEYS if sub_mode else (),
+        )
         trace.duration_s = round(time.time() - start, 2)
         trace.final_output = r.stdout
         if r.returncode != 0:
             trace.error = f"exit {r.returncode}: {(r.stderr or r.stdout)[-2000:]}"
         _parse_stream_json(r.stdout, trace)
+        if sub_mode:
+            trace.cost_usd = 0.0
         return trace
 
 
@@ -661,14 +671,15 @@ class CodexAgent:
         self.tree = tree
 
     def run(self, case: Case, sandbox: Sandbox, trial: int) -> Trace:
-        from .providers import find_cli
+        from .providers import SUBSCRIPTION_STRIP_KEYS, find_cli
 
+        sub_mode = self.cfg.get("auth_mode") == "subscription"
         bin_path = find_cli("codex", self.cfg.get("cli"))
         if not bin_path:
-            if os.environ.get("OPENAI_API_KEY") or self.cfg.get("api_key"):
+            if not sub_mode and (os.environ.get("OPENAI_API_KEY") or self.cfg.get("api_key")):
                 fallback_cfg = {**self.cfg, "type": "openai", "model": self.cfg.get("model", "gpt-4.1")}
                 return OpenAIAgent(fallback_cfg, self.system_prompt, tree=self.tree).run(case, sandbox, trial)
-            return Trace(case_id=case.id, trial=trial, workdir=str(sandbox.dir), error="codex CLI not installed and OPENAI_API_KEY not set")
+            return Trace(case_id=case.id, trial=trial, workdir=str(sandbox.dir), error="codex CLI not installed (run `npm i -g @openai/codex && codex login`)")
 
         if self.tree:
             self.tree.stage_into_sandbox(sandbox)
@@ -677,7 +688,7 @@ class CodexAgent:
         model_arg = f"-m {shlex.quote(str(self.cfg['model']))}" if self.cfg.get("model") and self.cfg["model"] not in ("auto", "opus", "sonnet") else ""
         cmd = f"{shlex.quote(bin_path)} exec --full-auto --skip-git-repo-check --json {model_arg} {shlex.quote(full_prompt)}"
         start = time.time()
-        r = sandbox.run(cmd, timeout=self.cfg.get("timeout_s", 600))
+        r = sandbox.run(cmd, timeout=self.cfg.get("timeout_s", 600), unset_env=SUBSCRIPTION_STRIP_KEYS if sub_mode else ())
         trace.duration_s = round(time.time() - start, 2)
         trace.final_output = r.stdout.strip()
         if r.returncode != 0:
@@ -732,11 +743,14 @@ class GeminiCliAgent:
         self.tree = tree
 
     def run(self, case: Case, sandbox: Sandbox, trial: int) -> Trace:
-        from .providers import find_cli
+        from .providers import SUBSCRIPTION_STRIP_KEYS, find_cli
 
+        sub_mode = self.cfg.get("auth_mode") == "subscription"
         bin_path = find_cli("gemini", self.cfg.get("cli"))
         if not bin_path:
-            return GeminiAgent(self.cfg, self.system_prompt, tree=self.tree).run(case, sandbox, trial)
+            if not sub_mode:
+                return GeminiAgent(self.cfg, self.system_prompt, tree=self.tree).run(case, sandbox, trial)
+            return Trace(case_id=case.id, trial=trial, workdir=str(sandbox.dir), error="gemini CLI not installed (run `npm i -g @google/gemini-cli && gemini`)")
         if self.tree:
             self.tree.stage_into_sandbox(sandbox)
         trace = Trace(case_id=case.id, trial=trial, workdir=str(sandbox.dir))
@@ -744,7 +758,7 @@ class GeminiCliAgent:
         model_arg = f"-m {shlex.quote(str(self.cfg['model']))}" if self.cfg.get("model") and self.cfg["model"] not in ("auto", "opus", "sonnet") else ""
         cmd = f"{shlex.quote(bin_path)} -p {shlex.quote(full_prompt)} --yolo -o json {model_arg}"
         start = time.time()
-        r = sandbox.run(cmd, timeout=self.cfg.get("timeout_s", 600))
+        r = sandbox.run(cmd, timeout=self.cfg.get("timeout_s", 600), unset_env=SUBSCRIPTION_STRIP_KEYS if sub_mode else ())
         trace.duration_s = round(time.time() - start, 2)
         trace.turns = 1
         trace.final_output = r.stdout.strip()
@@ -765,8 +779,44 @@ class GeminiCliAgent:
         return trace
 
 
+class CopilotCliAgent:
+    """GitHub Copilot subscription CLI (`copilot -p ... --allow-all-tools -s`) substrate."""
+
+    def __init__(self, cfg: dict[str, Any], system_prompt: str, tree: HarnessTree | None = None):
+        self.cfg = cfg
+        self.system_prompt = system_prompt
+        self.tree = tree
+
+    def run(self, case: Case, sandbox: Sandbox, trial: int) -> Trace:
+        from .providers import SUBSCRIPTION_STRIP_KEYS, find_cli
+
+        bin_path = find_cli("copilot", self.cfg.get("cli"))
+        if not bin_path:
+            return Trace(
+                case_id=case.id,
+                trial=trial,
+                workdir=str(sandbox.dir),
+                error="GitHub Copilot CLI (`copilot`) not installed (run `npm i -g @github/copilot && gh auth login`)",
+            )
+        if self.tree:
+            self.tree.stage_into_sandbox(sandbox)
+        trace = Trace(case_id=case.id, trial=trial, workdir=str(sandbox.dir))
+        full_prompt = f"{self.system_prompt}\n\nTask:\n{case.prompt}".strip() if self.system_prompt else case.prompt
+        model_arg = f"--model {shlex.quote(str(self.cfg['model']))}" if self.cfg.get("model") and self.cfg["model"] not in ("auto", "opus", "sonnet") else ""
+        cmd = f"{shlex.quote(bin_path)} -p {shlex.quote(full_prompt)} --allow-all-tools -s {model_arg}"
+        sub_mode = self.cfg.get("auth_mode") == "subscription"
+        start = time.time()
+        r = sandbox.run(cmd, timeout=self.cfg.get("timeout_s", 600), unset_env=SUBSCRIPTION_STRIP_KEYS if sub_mode else ())
+        trace.duration_s = round(time.time() - start, 2)
+        trace.turns = 1
+        trace.final_output = r.stdout.strip()
+        if r.returncode != 0:
+            trace.error = f"copilot cli exit {r.returncode}: {(r.stderr or r.stdout)[-1500:]}"
+        return trace
+
+
 class AutoRouterAgent:
-    """Automatic multi-model router: tries available local OSS (Ollama/vLLM), Gemini, Codex, OpenAI & Claude."""
+    """Automatic multi-model router: tries available local OSS (Ollama/vLLM), Subscriptions (Gemini, Codex, Copilot, Claude), and APIs."""
 
     def __init__(self, cfg: dict[str, Any], system_prompt: str, root=None, tree: HarnessTree | None = None):
         self.cfg = cfg
@@ -778,6 +828,8 @@ class AutoRouterAgent:
         from .providers import discover_providers
 
         info = discover_providers()
+        sub_only = self.cfg.get("auth_mode") == "subscription"
+        sub_cfg = {**self.cfg, "auth_mode": "subscription"} if sub_only else self.cfg
         chain: list[Agent] = []
         if info["local_servers"]["ollama"]["online"]:
             m = info["local_servers"]["ollama"]["models"][0]
@@ -788,17 +840,19 @@ class AutoRouterAgent:
         if info["local_servers"]["lmstudio"]["online"]:
             m = info["local_servers"]["lmstudio"]["models"][0]
             chain.append(OpenAIAgent({**self.cfg, "type": "lmstudio", "model": m, "base_url": "http://127.0.0.1:1234/v1"}, self.system_prompt, tree=self.tree))
-        if info["api_keys"]["gemini"]:
+        if not sub_only and info["api_keys"]["gemini"]:
             chain.append(GeminiAgent({**self.cfg, "model": "gemini-2.5-pro"}, self.system_prompt, tree=self.tree))
         elif info["clis"]["gemini"]:
-            chain.append(GeminiCliAgent({**self.cfg, "model": "gemini-2.5-pro"}, self.system_prompt, tree=self.tree))
-        if info["clis"]["codex"] or info["api_keys"]["openai"]:
-            chain.append(CodexAgent({**self.cfg, "model": "codex-mini-latest"}, self.system_prompt, tree=self.tree))
-        if info["api_keys"]["openrouter"]:
+            chain.append(GeminiCliAgent({**sub_cfg, "model": "gemini-2.5-pro"}, self.system_prompt, tree=self.tree))
+        if info["clis"]["codex"] or (not sub_only and info["api_keys"]["openai"]):
+            chain.append(CodexAgent({**sub_cfg, "model": "gpt-5-codex"}, self.system_prompt, tree=self.tree))
+        if info["clis"]["copilot"]:
+            chain.append(CopilotCliAgent({**sub_cfg, "model": "claude-sonnet-4.5"}, self.system_prompt, tree=self.tree))
+        if not sub_only and info["api_keys"]["openrouter"]:
             chain.append(OpenAIAgent({**self.cfg, "type": "openrouter", "model": "qwen/qwen3-coder"}, self.system_prompt, tree=self.tree))
         if info["clis"]["claude"] and self.cfg.get("command"):
-            chain.append(CommandAgent(self.cfg, self.root))
-        if info["api_keys"]["anthropic"]:
+            chain.append(CommandAgent(sub_cfg, self.root))
+        if not sub_only and info["api_keys"]["anthropic"]:
             chain.append(ClaudeAgent({**self.cfg, "model": "claude-sonnet-4-6"}, self.system_prompt, tree=self.tree))
         return chain
 
@@ -832,6 +886,8 @@ def build_agent(cfg: dict[str, Any], root) -> Agent:
         return GeminiAgent(cfg, compiled_prompt, tree=tree)
     if kind == "gemini-cli":
         return GeminiCliAgent(cfg, compiled_prompt, tree=tree)
+    if kind == "copilot":
+        return CopilotCliAgent(cfg, compiled_prompt, tree=tree)
     if kind in ("ollama", "opensource"):
         return OllamaAgent(cfg, compiled_prompt, tree=tree)
     if kind in ("openai", "vllm", "lmstudio", "openrouter"):

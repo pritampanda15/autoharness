@@ -27,6 +27,7 @@ from .config import Config
 from .diff import compare
 from .hooks import hook_status, install_hook, uninstall_hook
 from .lessons import LessonStore
+from .plugin_installer import install_plugin_target, mcp_server_entry, plugin_status
 from .providers import apply_substrate_selection, discover_providers
 from .store import Store
 from .synthesizer import build_context_map, scan_codebase, synthesize_cases
@@ -258,6 +259,8 @@ def collect_studio_state(
         "calibration": store.calibration(),
         "hooks": hook_status(cfg.root),
         "providers": discover_providers(),
+        "plugins": plugin_status(cfg.root),
+        "mcp_entry": mcp_server_entry(cfg.root),
     }
 
 
@@ -1203,7 +1206,8 @@ pre.code-block {
         <circle cx="64" cy="64" r="4.5" fill="#ffffff"/>
       </svg>
       <span>Auto<span style="color:var(--blue)">Harness</span></span>
-      <button id="hdr-fp" class="sub-pill mono" style="cursor:pointer;" title="Switch AI Model Substrate (Codex, Gemini, Ollama, vLLM, Claude)">v0.3</button>
+      <button id="hdr-fp" class="sub-pill mono" style="cursor:pointer;" title="Switch AI Model or Subscription (Claude Pro/Max, ChatGPT Plus/Codex, Gemini Pro, Copilot, Ollama, vLLM)">v0.3</button>
+      <button id="btn-mcp-plugins" class="sub-pill" style="cursor:pointer; color:var(--blue); border-color:rgba(0,122,255,0.22); background:rgba(0,122,255,0.08);" title="Connect as MCP Agent Server or Install as Universal Plugin">MCP &amp; Plugins</button>
     </div>
 
     <nav class="seg-nav" id="main-tabs">
@@ -1515,18 +1519,33 @@ $ autoharness hook install --kind pre-commit</pre>
   </div>
 </div>
 
-<!-- Liquid Glass Universal AI Model Switcher Sheet -->
+<!-- Liquid Glass Universal AI Model & Subscription Switcher Sheet -->
 <div class="modal-backdrop" id="model-modal">
-  <div class="modal-sheet" style="max-width:780px;">
+  <div class="modal-sheet" style="max-width:820px;">
     <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:12px; margin-bottom:14px;">
       <div>
-        <div class="card-title" style="color:var(--blue); font-weight:700;">Universal Model &amp; Substrate Matrix</div>
-        <h2 style="font-size:22px; font-weight:700; letter-spacing:-0.024em;">Codex · Gemini · Ollama · vLLM · OpenRouter · Claude</h2>
-        <div style="font-size:13px; color:var(--mute); margin-top:3px;">Switch Agent, Judge, and Contrastive Fixer across any closed or local open-source model.</div>
+        <div class="card-title" style="color:var(--blue); font-weight:700;">Subscriptions · Local Open-Source · Universal Substrates</div>
+        <h2 style="font-size:22px; font-weight:700; letter-spacing:-0.024em;">Flat-Rate Subscriptions ($0 API) &amp; Any AI Model</h2>
+        <div style="font-size:13px; color:var(--mute); margin-top:3px;">Run on your existing Claude Pro/Max/Team, ChatGPT Plus/Pro, Google AI Pro, or Copilot subscription — or 100% local Ollama / vLLM.</div>
       </div>
       <button class="btn btn-tinted" id="md-close" style="padding:6px 14px; font-size:12.5px;">Close</button>
     </div>
     <div id="md-body"></div>
+  </div>
+</div>
+
+<!-- Liquid Glass MCP Server & Universal Plugin Installer Sheet -->
+<div class="modal-backdrop" id="plugin-modal">
+  <div class="modal-sheet" style="max-width:820px;">
+    <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:12px; margin-bottom:14px;">
+      <div>
+        <div class="card-title" style="color:var(--purple); font-weight:700;">Model Context Protocol (MCP) &amp; Agent Plugin Hub</div>
+        <h2 style="font-size:22px; font-weight:700; letter-spacing:-0.024em;">Feed AutoHarness Into Any AI Agent or IDE</h2>
+        <div style="font-size:13px; color:var(--mute); margin-top:3px;">Install AutoHarness as a 9-tool MCP server + write-locked Skill plugin in one click. Uses your host agent's subscription with $0 extra API keys.</div>
+      </div>
+      <button class="btn btn-tinted" id="pl-close" style="padding:6px 14px; font-size:12.5px;">Close</button>
+    </div>
+    <div id="pl-body"></div>
   </div>
 </div>
 
@@ -1604,7 +1623,8 @@ function getFailureSummary() {
 /* ==================== RENDER ALL PANES ==================== */
 function renderAll() {
   const mLabel = STATE.agent.model || STATE.agent.type;
-  document.getElementById("hdr-fp").textContent = `${STATE.agent.type}:${mLabel} ▾`;
+  const subTag = STATE.agent.auth_mode === "subscription" ? " · SUB $0" : "";
+  document.getElementById("hdr-fp").textContent = `${STATE.agent.type}:${mLabel}${subTag} ▾`;
   const fails = getFailureSummary();
   const topBtn = document.getElementById("btn-top-autofix");
   const hdrStatus = document.getElementById("hdr-status");
@@ -2625,20 +2645,51 @@ window.toggleHook = async (kind, status) => {
   } catch (e) { toast("Live server required"); }
 };
 
-/* ==================== UNIVERSAL AI MODEL SWITCHER ==================== */
+/* ==================== UNIVERSAL AI MODEL & SUBSCRIPTION SWITCHER ==================== */
 const mdModal = document.getElementById("model-modal");
 document.getElementById("md-close").onclick = () => mdModal.classList.remove("open");
 mdModal.onclick = e => { if (e.target === mdModal) mdModal.classList.remove("open"); };
 
 function openModelModal() {
-  const prov = STATE.providers || { presets: [], clis: {}, api_keys: {}, local_servers: {} };
+  const prov = STATE.providers || { presets: [], subscriptions: {}, clis: {}, api_keys: {}, local_servers: {} };
   const presets = prov.presets || [];
+  const subs = prov.subscriptions || {};
   const curType = STATE.agent.type;
   const curModel = STATE.agent.model || "";
+  const curAuth = STATE.agent.auth_mode || "";
+
+  const subEntries = [
+    ["claude", "Claude Pro / Max / Team"],
+    ["codex", "ChatGPT Plus / Pro (Codex)"],
+    ["gemini", "Google AI Pro / Ultra"],
+    ["copilot", "GitHub Copilot Pro"],
+  ];
+
   document.getElementById("md-body").innerHTML = `
+    <div class="card-sub" style="padding:14px 16px; margin-bottom:14px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+        <div class="card-title" style="margin-bottom:0;">Detected Flat-Rate OAuth Subscriptions ($0 API Billing)</div>
+        <span class="badge b-green">API Keys Isolated in Subscription Mode</span>
+      </div>
+      <div style="display:grid; grid-template-columns:repeat(4, 1fr); gap:9px;">
+        ${subEntries.map(([key, title]) => {
+          const s = subs[key] || { active: false, plan: "Not signed in" };
+          const cleanPlan = String(s.plan || "").replace(/`/g, "");
+          return `
+            <div style="padding:10px 12px; border-radius:13px; background:rgba(255,255,255,0.74); border:1px solid ${s.active ? 'rgba(52,199,89,0.38)' : 'rgba(15,23,42,0.08)'};">
+              <div style="display:flex; align-items:center; justify-content:space-between; gap:6px; margin-bottom:3px;">
+                <span style="font-size:12px; font-weight:700;">${esc(title)}</span>
+                <span class="badge ${s.active ? 'b-green' : 'b-slate'}" style="padding:2px 7px; font-size:10.5px;">${s.active ? 'Connected' : 'Sign In'}</span>
+              </div>
+              <div style="font-size:11.5px; color:var(--mute);">${esc(cleanPlan)}${s.account ? ' · ' + esc(s.account) : ''}</div>
+            </div>`;
+        }).join("")}
+      </div>
+    </div>
+
     <div style="display:grid; grid-template-columns:repeat(2, 1fr); gap:11px; margin-bottom:16px;">
       ${presets.map(p => {
-        const isActive = (curType === p.agent_type && (curModel === p.model || p.id === "auto"));
+        const isActive = (curType === p.agent_type && (curModel === p.model || p.id === "subscription-pool") && (!p.auth_mode || p.auth_mode === curAuth));
         return `
           <div class="comp-item ${isActive ? 'active' : ''}" onclick="activatePreset('${esc(p.id)}')" style="padding:13px 15px;">
             <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:4px;">
@@ -2692,7 +2743,72 @@ window.activateCustomOSS = async () => {
   }
 };
 
+/* ==================== MCP SERVER & UNIVERSAL PLUGIN HUB ==================== */
+const plModal = document.getElementById("plugin-modal");
+document.getElementById("pl-close").onclick = () => plModal.classList.remove("open");
+plModal.onclick = e => { if (e.target === plModal) plModal.classList.remove("open"); };
+
+function openPluginModal() {
+  const st = STATE.plugins || {};
+  const mcpCfg = JSON.stringify({ mcpServers: { autoharness_mcp: STATE.mcp_entry || { command: "autoharness", args: ["mcp"] } } }, null, 2);
+  const targets = [
+    { id: "antigravity", name: "Google Antigravity", desc: "Installs global plugin + SKILL.md + autoharness_mcp into ~/.gemini/config/plugins/autoharness" },
+    { id: "claude", name: "Claude Code & Desktop", desc: "Writes .mcp.json + .claude-plugin/plugin.json + skills/autoharness/SKILL.md" },
+    { id: "cursor", name: "Cursor IDE", desc: "Writes .cursor/mcp.json + .cursor/rules/autoharness.mdc write-locked healing rules" },
+    { id: "vscode", name: "VS Code / GitHub Copilot", desc: "Writes .vscode/mcp.json stdio server config for Copilot Agent Mode" },
+    { id: "gemini", name: "Google Gemini CLI", desc: "Registers autoharness_mcp inside .gemini/settings.json" },
+    { id: "codex", name: "OpenAI Codex CLI", desc: "Registers [mcp_servers.autoharness_mcp] inside .codex/config.toml" },
+  ];
+
+  document.getElementById("pl-body").innerHTML = `
+    <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:12px;">
+      <div style="font-size:13px; color:var(--ink-2); font-weight:600;">9 MCP Tools Exposed: status · scan_code · snapshot_test_locks · verify_repair · synthesize_cases · run_eval · autofix · harness_component · lessons</div>
+      <button class="btn btn-blue" onclick="installPluginTarget('all')">Install Into All 6 Agents</button>
+    </div>
+    <div style="display:grid; grid-template-columns:repeat(2, 1fr); gap:11px; margin-bottom:16px;">
+      ${targets.map(t => {
+        const installed = Boolean(st[t.id]);
+        return `
+          <div class="comp-item ${installed ? 'active' : ''}" onclick="installPluginTarget('${t.id}')" style="padding:13px 15px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:5px;">
+              <span style="font-weight:700; font-size:14px;">${esc(t.name)}</span>
+              <span class="badge ${installed ? 'b-green' : 'b-blue'}">${installed ? 'Installed' : '1-Click Install'}</span>
+            </div>
+            <div style="font-size:12px; color:var(--mute); line-height:1.45;">${esc(t.desc)}</div>
+          </div>`;
+      }).join("")}
+    </div>
+    <div class="card-sub" style="padding:14px 16px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+        <div class="card-title" style="margin-bottom:0;">Universal Stdio MCP Config (Any MCP Client: Windsurf, Cline, Zed, Continue)</div>
+        <button class="btn btn-tinted" style="padding:5px 12px; font-size:12px;" onclick="copyMcpSnippet()">Copy JSON</button>
+      </div>
+      <pre class="code-block mono" id="pl-mcp-json" style="margin:0; font-size:11.5px;">${esc(mcpCfg)}</pre>
+    </div>
+  `;
+  plModal.classList.add("open");
+}
+
+window.installPluginTarget = async (target) => {
+  try {
+    const data = await apiPost("/api/plugin/install", { target });
+    STATE = data.state;
+    renderAll();
+    openPluginModal();
+    toast(`Installed AutoHarness plugin (${target})`);
+  } catch (e) {
+    toast(`Run: autoharness plugin install --target ${target}`);
+  }
+};
+
+window.copyMcpSnippet = () => {
+  const txt = document.getElementById("pl-mcp-json")?.textContent || "";
+  if (navigator.clipboard) navigator.clipboard.writeText(txt);
+  toast("Copied MCP server config to clipboard");
+};
+
 document.getElementById("hdr-fp").onclick = openModelModal;
+document.getElementById("btn-mcp-plugins").onclick = openPluginModal;
 
 renderAll();
 requestAnimationFrame(tickMotionGraphics);
@@ -2802,6 +2918,12 @@ def serve_studio(cfg: Config, store: Store, host: str = "127.0.0.1", port: int =
                         custom_base_url=body.get("base_url"),
                     )
                     self._send_json({"ok": True, "preset": preset, "state": collect_studio_state(cfg, store)})
+                    return
+
+                if parsed.path == "/api/plugin/install":
+                    target = str(body.get("target") or "all")
+                    written = install_plugin_target(target, cfg.root)
+                    self._send_json({"ok": True, "written": written, "state": collect_studio_state(cfg, store)})
                     return
 
                 if parsed.path == "/api/run_offline":

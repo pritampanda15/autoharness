@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "autoharness_mcp": {
+      "command": "autoharness",
+      "args": ["mcp"]
+    }
+  }
+}

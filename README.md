@@ -114,19 +114,42 @@ autoharness hook install --kind pre-commit
 
 `ah` is installed as a short alias for `autoharness`.
 
-## Universal AI substrates (Codex, Gemini, Open-Source & Claude)
+## Universal AI substrates, Flat-Rate Subscriptions (`$0` API) & Open-Source
 
-AutoHarness is **100% model-agnostic** across evaluation, code self-healing, contrastive harness fixing, and rubric judging:
+AutoHarness is **100% model-agnostic** across evaluation, code self-healing, contrastive harness fixing, and rubric judging — and natively supports **flat-rate AI subscriptions** (`auth_mode: subscription`), automatically stripping pay-per-token environment keys (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`) so your CLI runs strictly on OAuth subscription billing (`$0.00` API cost):
 
-| Substrate | CLI / Endpoint | Example Command |
+| Substrate / Plan | Auth / Endpoint | Example Command |
 |---|---|---|
-| **OpenAI Codex** | `codex exec --full-auto --json` or `OPENAI_API_KEY` | `autoharness models --use codex` |
-| **Google Gemini** | `gemini -p` CLI or `GEMINI_API_KEY` | `autoharness models --use gemini` |
-| **Ollama (Local Open-Source)** | `http://127.0.0.1:11434` (`qwen2.5-coder`, `deepseek-r1`, `llama3.3`, `gemma3`) | `autoharness models --use ollama-qwen --model qwen2.5-coder:32b` |
-| **vLLM / LM Studio / llama.cpp** | OpenAI-compatible local server (`:8000/v1`, `:1234/v1`) | `autoharness models --use vllm-local --base-url http://127.0.0.1:8000/v1` |
-| **OpenRouter OSS** | `OPENROUTER_API_KEY` (`qwen3-coder`, `deepseek-chat-v3`, `llama-4`) | `autoharness models --use openrouter-oss` |
-| **Claude Code** | `claude -p` CLI or `ANTHROPIC_API_KEY` | `autoharness models --use claude` |
-| **Auto-Failover Router** | Automatically routes around missing keys or CLI rate limits | `autoharness models --use auto` |
+| **Subscription Pool Router (`$0` API)** | Rotates across your logged-in OAuth subscriptions + local Ollama | `autoharness models --use subscription-pool` |
+| **Claude Pro / Max / Team (`$0` API)** | `claude login` (`claude.ai` OAuth, API keys stripped) | `autoharness models --use claude-sub` |
+| **ChatGPT Plus / Pro / Team (`$0` API)** | `codex login` (`~/.codex/auth.json` OAuth) | `autoharness models --use codex-sub` |
+| **Google AI Pro / Ultra (`$0` API)** | `gemini` Google account OAuth (`~/.gemini/oauth_creds.json`) | `autoharness models --use gemini-sub` |
+| **GitHub Copilot Pro / Pro+ (`$0` API)** | `gh auth login` + `copilot -p` CLI | `autoharness models --use copilot-sub` |
+| **Ollama (Local Open-Source, `$0`)** | `http://127.0.0.1:11434` (`qwen2.5-coder`, `deepseek-r1`, `llama3.3`, `gemma3`) | `autoharness models --use ollama-qwen --model qwen2.5-coder:32b` |
+| **vLLM / LM Studio / llama.cpp** | Self-hosted OpenAI-compatible server (`:8000/v1`, `:1234/v1`) | `autoharness models --use vllm-local --base-url http://127.0.0.1:8000/v1` |
+| **OpenRouter / Direct API Keys** | Optional pay-per-token API mode (`OPENROUTER_API_KEY`, etc.) | `autoharness models --use openrouter-oss` |
+
+## MCP Agent Server & Universal Plugin Installation
+
+AutoHarness can also be **fed as a Model Context Protocol (MCP) server** (`autoharness mcp`) or **installed in one command as a native plugin + skill** into any AI coding agent or IDE — letting the host AI model run AutoHarness's write-locked verification, AST/import scanner, case synthesizer, and 8-component Harness² engine using its own session (`$0` extra API keys):
+
+```bash
+# Install into ALL supported AI agents & IDEs at once:
+autoharness plugin install --target all
+
+# Or target a specific agent ecosystem:
+autoharness plugin install --target antigravity   # ~/.gemini/config/plugins/autoharness/
+autoharness plugin install --target claude        # .mcp.json + .claude-plugin/plugin.json + skills/autoharness/SKILL.md
+autoharness plugin install --target cursor        # .cursor/mcp.json + .cursor/rules/autoharness.mdc
+autoharness plugin install --target vscode        # .vscode/mcp.json (GitHub Copilot Agent Mode)
+autoharness plugin install --target gemini        # .gemini/settings.json
+autoharness plugin install --target codex         # .codex/config.toml
+
+# Or connect any MCP client (Windsurf, Cline, Zed, Continue, Claude Desktop) via stdio:
+autoharness mcp --root /path/to/repo
+```
+
+Exposed MCP tools (`autoharness_mcp`): `autoharness_status`, `autoharness_scan_code`, `autoharness_snapshot_test_locks`, `autoharness_verify_repair` (anti-gaming SHA-256 test-immutability gate), `autoharness_synthesize_cases`, `autoharness_run_eval`, `autoharness_autofix`, `autoharness_harness_component`, and `autoharness_lessons`.
 
 ## Experiments and recursion modes
 
