@@ -1,0 +1,19 @@
+id: terse-yes-no
+description: A yes/no question gets a yes/no answer, correct and short.
+tags: [qa, style]
+split: holdout
+prompt: |
+  Is numpy pinned to an exact version in requirements.txt? Answer yes or no.
+setup:
+  files:
+    requirements.txt: |
+      numpy==2.1.3
+      pandas>=2.2
+checks:
+  - {name: correct, type: output_matches, pattern: '^\W*yes\b'}
+  - {name: short, type: output_max_chars, value: 80}
+  - {type: max_turns, value: 4}
+mock:
+  actions:
+    - {tool: read_file, input: {path: requirements.txt}}
+  output: "Yes."

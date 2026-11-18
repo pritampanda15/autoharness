@@ -1,0 +1,51 @@
+id: fix-off-by-one
+description: Fix a bug so the existing tests pass, with a minimal edit and verification.
+tags: [coding, bugfix]
+prompt: |
+  The tests in test_stats.py are failing. Fix the bug in stats.py so they pass.
+setup:
+  files:
+    stats.py: |
+      def moving_average(xs, k):
+          """Average of each window of k consecutive values."""
+          out = []
+          for i in range(len(xs) - k):
+              out.append(sum(xs[i:i + k]) / k)
+          return out
+    test_stats.py: |
+      from stats import moving_average
+
+      def test_windows():
+          assert moving_average([1, 2, 3, 4], 2) == [1.5, 2.5, 3.5]
+
+      def test_single_window():
+          assert moving_average([2, 4], 2) == [3.0]
+checks:
+  - {name: tests-pass, type: command, run: PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python3 -m pytest -q}
+  - {name: tests-untouched, type: file_contains, path: test_stats.py, pattern: '\[1\.5, 2\.5, 3\.5\]'}
+  - {name: read-before-write, type: read_before_write, paths: [stats.py]}
+  - {name: verified, type: verified_after_edit}
+  - {type: max_turns, value: 8}
+  - {type: no_loops, max_repeats: 3}
+  - name: minimal-fix
+    type: judge
+    include_files: [stats.py]
+    rubric: |
+      1. The fix corrects the loop bound (range(len(xs) - k + 1) or equivalent) rather than special-casing the tests.
+      2. The function is otherwise unchanged (no rewrite, no new dependencies).
+      3. The final reply says what was changed and that the tests were run.
+mock:
+  actions:
+    - {tool: read_file, input: {path: stats.py}}
+    - tool: write_file
+      input:
+        path: stats.py
+        content: |
+          def moving_average(xs, k):
+              """Average of each window of k consecutive values."""
+              out = []
+              for i in range(len(xs) - k + 1):
+                  out.append(sum(xs[i:i + k]) / k)
+              return out
+    - {tool: run_bash, input: {command: PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python3 -m pytest -q}}
+  output: Fixed the off-by-one in the loop bound (len(xs) - k + 1). Ran pytest; 2 passed.

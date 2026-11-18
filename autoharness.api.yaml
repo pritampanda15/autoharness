@@ -1,0 +1,46 @@
+# autoharness config for the Anthropic API (needs ANTHROPIC_API_KEY). Use with: autoharness --config autoharness.api.yaml run
+
+cases: [cases/golden, cases/mined]
+runs_dir: runs/api          # cases/mined is added once you promote drafts (status: active)
+trials: 3                      # each case runs N times; agents are nondeterministic
+workers: 4
+
+agent:
+  # claude   - Claude API tool loop using the system prompt below (the harness under test)
+  # command  - any CLI agent, e.g. Claude Code headless:
+  #            command: claude -p {prompt} --output-format stream-json --verbose --permission-mode acceptEdits
+  # scripted - replays each case's `mock:` block; free, for testing this tool itself
+  type: claude
+  model: claude-opus-5-5
+  effort: medium
+  system_prompt_file: harnesses/default/system.md
+  max_turns: 20
+  bash_timeout_s: 60
+
+judge:
+  model: claude-opus-5-5
+  effort: high
+  samples: 3                   # self-consistency votes; any split -> human review
+  min_confidence: 0.7
+  skip_if_deterministic_fails: true
+
+calibration:
+  labels_file: labels/calibration.jsonl
+  min_agreement: 0.85
+  min_labels: 20
+
+fixer:
+  backend: api
+  model: claude-opus-5-5
+  effort: high
+  editable: [harnesses/default/system.md]
+  max_iters: 3
+  max_usd_per_trigger: 5
+
+loop:
+  watch: [harnesses/default, cases/golden, cases/mined]
+  autofix: true
+
+gate:
+  max_pass_rate_drop: 0.05
+  max_case_drop: 0.34

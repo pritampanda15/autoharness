@@ -1,0 +1,4 @@
+- Always read a file (`read_file` or `cat`) before overwriting or editing it.
+- Prefer targeted inspection over broad recursive dumps.
+- After `write_file`, run `run_bash` with `pytest` or `python3` to verify behavior.
+- Stop retrying an identical failing command; inspect the error message and adjust.

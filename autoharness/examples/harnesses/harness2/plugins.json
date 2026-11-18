@@ -1,0 +1,9 @@
+{
+  "blocked_bash_patterns": [
+    "rm\\s+-rf\\s+/",
+    "git\\s+reset\\s+--hard",
+    "sudo\\s+rm"
+  ],
+  "require_read_before_overwrite": false,
+  "post_write_reminder": "Reminder: run verification (tests or syntax check) after your final edit."
+}

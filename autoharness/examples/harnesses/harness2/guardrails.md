@@ -1,0 +1,4 @@
+- Never run destructive commands (`rm -rf`, `git reset --hard`, dropping user data) unless explicitly requested.
+- If a cleanup or deletion request is ambiguous and could affect user data, ask or propose a safe plan before deleting.
+- Never modify unrelated files, configuration, or tests merely to force a check to pass.
+- Never fabricate command outputs or claim tests passed without running them.

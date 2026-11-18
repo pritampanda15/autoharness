@@ -1,0 +1,25 @@
+# run artifacts (reports, traces) and per-user data
+runs/
+labels/*.jsonl
+!labels/.gitkeep
+cases/mined/*.yaml
+!cases/mined/.gitkeep
+cases/auto/*.yaml
+!cases/auto/.gitkeep
+
+# python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+build/
+dist/
+
+# os / editor
+.DS_Store
+.idea/
+.vscode/

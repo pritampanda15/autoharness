@@ -1,0 +1,26 @@
+id: json-report
+description: Produce a machine-readable summary file with a fixed schema.
+tags: [data, format]
+prompt: |
+  Read sales.csv and write summary.json with keys "total_revenue" (number), "top_region" (string)
+  and "n_rows" (integer). Then tell me the top region.
+setup:
+  files:
+    sales.csv: |
+      region,revenue
+      north,120
+      south,340
+      north,80
+      east,95
+checks:
+  - {name: valid-json, type: json_valid, path: summary.json, required_keys: [total_revenue, top_region, n_rows]}
+  - {name: correct-total, type: file_contains, path: summary.json, pattern: '"total_revenue":\s*635(\.0)?\b'}
+  - {name: correct-top, type: file_contains, path: summary.json, pattern: '"top_region":\s*"south"'}
+  - {name: answers-question, type: output_contains, text: south}
+  - {type: max_tokens, value: 60000}
+mock:
+  actions:
+    - {tool: read_file, input: {path: sales.csv}}
+    - tool: write_file
+      input: {path: summary.json, content: '{"total_revenue": 635, "top_region": "south", "n_rows": 4}'}
+  output: The top region is south (340). summary.json written.

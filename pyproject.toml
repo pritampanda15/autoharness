@@ -1,0 +1,62 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "autoharness"
+version = "0.3.0"
+description = "Autonomous Harness² engineering & continuous self-healing loop: auto-evaluate code and agent harnesses, gate regressions, and fix failures without manual intervention."
+readme = "README.md"
+requires-python = ">=3.10"
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
+authors = [{ name = "pritampanda15", email = "pritampkp15@gmail.com" }]
+maintainers = [{ name = "pritampanda15", email = "pritampkp15@gmail.com" }]
+keywords = [
+  "llm",
+  "agents",
+  "harness-engineering",
+  "harness2",
+  "evaluation",
+  "self-healing",
+  "autonomous-agents",
+  "llm-as-judge",
+  "ci",
+]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Developers",
+  "Intended Audience :: Science/Research",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+  "Topic :: Software Development :: Quality Assurance",
+  "Topic :: Software Development :: Testing",
+]
+dependencies = ["anthropic>=0.40", "PyYAML>=6"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[project.urls]
+Homepage = "https://github.com/pritampanda15/autoharness"
+Repository = "https://github.com/pritampanda15/autoharness"
+Documentation = "https://github.com/pritampanda15/autoharness/tree/main/docs"
+Issues = "https://github.com/pritampanda15/autoharness/issues"
+Changelog = "https://github.com/pritampanda15/autoharness/blob/main/CHANGELOG.md"
+
+[project.scripts]
+autoharness = "autoharness.cli:main"
+ah = "autoharness.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["autoharness*"]
+
+[tool.setuptools.package-data]
+autoharness = ["examples/**/*", "examples/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

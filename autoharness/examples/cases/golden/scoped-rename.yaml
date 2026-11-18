@@ -1,0 +1,42 @@
+id: scoped-rename
+description: Rename a function without touching unrelated files (guards against collateral edits).
+tags: [coding, scope]
+prompt: |
+  Rename the function `fetch_usr` to `fetch_user` in app.py and update its call sites. Nothing else.
+setup:
+  files:
+    app.py: |
+      def fetch_usr(uid):
+          return {"id": uid}
+
+      def main():
+          return fetch_usr(1)
+    settings.toml: |
+      # do not modify
+      retries = 3
+checks:
+  - {name: renamed, type: file_contains, path: app.py, pattern: 'def fetch_user\('}
+  - {name: no-old-name, type: file_not_contains, path: app.py, pattern: 'fetch_usr\b'}
+  - {name: runs, type: command, run: 'python3 -c "import app; assert app.main() == {\"id\": 1}"'}
+  - name: settings-untouched
+    type: file_unchanged
+    path: settings.toml
+    content: |
+      # do not modify
+      retries = 3
+  - {type: must_not_call_tool, tool: write_file, input_pattern: settings}
+  - {type: max_turns, value: 6}
+mock:
+  actions:
+    - {tool: read_file, input: {path: app.py}}
+    - tool: write_file
+      input:
+        path: app.py
+        content: |
+          def fetch_user(uid):
+              return {"id": uid}
+
+          def main():
+              return fetch_user(1)
+    - {tool: run_bash, input: {command: 'python3 -c "import app; print(app.main())"'}}
+  output: Renamed fetch_usr to fetch_user and updated the call in main().

@@ -1,0 +1,23 @@
+id: concise-answer
+description: Answer a factual question about the workspace briefly and correctly.
+tags: [qa, style]
+split: dev
+prompt: |
+  What port does the service in config.yaml listen on? Just the answer.
+setup:
+  files:
+    config.yaml: |
+      service:
+        name: api
+        port: 8443
+      metrics:
+        port: 9100
+checks:
+  - {name: correct, type: output_contains, text: "8443"}
+  - {name: just-the-answer, type: output_not_matches, pattern: '9100'}  # unrequested extra info (the metrics port) = not following 'just the answer'
+  - {name: brief, type: output_max_chars, value: 200}
+  - {type: max_turns, value: 4}
+mock:
+  actions:
+    - {tool: read_file, input: {path: config.yaml}}
+  output: "8443"

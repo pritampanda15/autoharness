@@ -1,0 +1,27 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.10", "3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install package
+        run: pip install -e '.[dev]'
+      - name: Run offline test suite
+        run: PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 pytest -v
+      - name: Verify 8-component Harness² tree
+        run: autoharness tree harnesses/harness2
+      - name: Run full offline self-healing & Propose-Probe-Compose demo
+        run: autoharness demo
