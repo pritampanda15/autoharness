@@ -229,3 +229,7 @@ def test_cli_new_commands(tmp_path, capsys):
     assert any((tmp_path / "auto").glob("*.yaml"))
     out = capsys.readouterr().out
     assert "8-component Harness²" in out and "synthesized 1 case" in out
+
+    studio_out = tmp_path / "studio.html"
+    assert cli.main(["--config", str(tmp_path / "autoharness.yaml"), "studio", "--export", str(studio_out), "--no-open"]) == 0
+    assert studio_out.exists() and "AutoHarness Studio" in studio_out.read_text()

@@ -2,6 +2,7 @@
 
   autoharness init [DIR]          scaffold a project (config, Harness² tree, example cases)
   autoharness demo                run the full Propose -> Probe -> Compose loop offline (~30s)
+  autoharness studio              launch the Apple-designed interactive AutoHarness Studio web UI
   autoharness run [--gate]        run the suite, grade, diff vs baseline, write HTML report
   autoharness watch               continuous loop: on every code or harness change, heal -> run -> gate -> fix
   autoharness heal [PATHS...]     scan new & legacy code, auto-repair broken modules safely, sync context
@@ -469,6 +470,22 @@ def cmd_lessons(args) -> int:
     return 0
 
 
+def cmd_studio(args) -> int:
+    from .studio import render_studio_html, serve_studio
+
+    cfg, store = _ctx(args)
+    if args.export:
+        out = Path(args.export)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(render_studio_html(cfg, store))
+        print(f"exported static AutoHarness Studio snapshot -> {out.resolve()}")
+        if not args.no_open:
+            webbrowser.open(out.resolve().as_uri())
+        return 0
+    serve_studio(cfg, store, host=args.host, port=args.port, open_browser=not args.no_open)
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(
         prog="autoharness", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
@@ -588,6 +605,13 @@ def main(argv: list[str] | None = None) -> int:
 
     ls = sub.add_parser("lessons", help="show the lessons the fixer has learned")
     ls.set_defaults(fn=cmd_lessons)
+
+    st = sub.add_parser("studio", help="launch the Apple-designed interactive AutoHarness Studio UI")
+    st.add_argument("--host", default="127.0.0.1")
+    st.add_argument("--port", type=int, default=8484)
+    st.add_argument("--export", metavar="HTML", help="export a standalone static HTML snapshot instead of serving")
+    st.add_argument("--no-open", action="store_true", help="do not open browser automatically")
+    st.set_defaults(fn=cmd_studio)
 
     args = p.parse_args(argv)
     return args.fn(args)

@@ -48,7 +48,9 @@ class Store:
         return d
 
     def runs(self) -> list[str]:
-        return sorted(p.name for p in self.root.iterdir() if p.is_dir() and (p / "summary.json").exists())
+        dirs = [p for p in self.root.iterdir() if p.is_dir() and (p / "summary.json").exists()]
+        dirs.sort(key=lambda p: ((p / "summary.json").stat().st_mtime_ns, p.name))
+        return [p.name for p in dirs]
 
     def latest(self) -> str:
         r = self.runs()

@@ -85,6 +85,7 @@ Initialize a project, inspect the 8-component Harness² tree, establish your bas
 autoharness init my-project && cd my-project
 autoharness tree harnesses/harness2
 autoharness run --autonomous --open
+autoharness studio              # open the interactive Apple-designed AutoHarness Studio UI
 autoharness watch --now
 ```
 
@@ -103,6 +104,7 @@ autoharness hook install --kind pre-commit
 
 | Workflow | Command | Guide |
 |---|---|---|
+| Interactive Visual Studio | `autoharness studio [--port 8484] [--export studio.html]` | [Architecture](docs/ARCHITECTURE.md) |
 | Continuous Watcher | `autoharness watch [--now] [--no-fix]` | [Architecture](docs/ARCHITECTURE.md) |
 | Code Self-Healing | `autoharness heal [PATHS...] [--changed]` | [Architecture](docs/ARCHITECTURE.md) |
 | Auto-Case Synthesis | `autoharness synthesize [PATHS...]` | [Writing Cases](docs/CASES.md) |

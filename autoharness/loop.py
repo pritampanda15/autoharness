@@ -341,6 +341,7 @@ def autofix(cfg: Config, store: Store, base: dict[str, Any], *, fixer: Fixer | N
                        "diff": diff[:3000], "reasons": reasons, "accepted": False, "run": None}
                 out.rejected.append(rec)
                 session.append(rec)
+                _log(store, "REJECTED (STATIC GUARD)", rec, {"dev": (split_rate(base, "dev"), None), "holdout": (split_rate(base, "holdout"), None), "token_delta_pct": 0.0})
                 history.append({k2: rec[k2] for k2 in ("approach", "diff", "reasons")})
             else:
                 runnable.append((i, p))

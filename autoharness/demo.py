@@ -171,8 +171,10 @@ def run_demo(target: Path, quiet: bool = False) -> dict[str, Any]:
     (target / "tests" / "test_pricing.py").write_text(PRICING_TEST)
 
     cfg = load_config(target / "autoharness.yaml")
-    cfg.raw.update(trials=1, workers=3)
+    cfg.raw.update(trials=1, workers=3, code_paths=["src"])
     cfg.raw["judge"]["autonomous"] = True
+    import subprocess as _sp
+    _sp.run(["git", "init", "-q"], cwd=target, check=False)
     store = Store(cfg.path(cfg["runs_dir"]))
     factory = lambda c: DemoAgent(c.path(c["fixer"]["editable"][0]))
     judge = Judge(cfg["judge"], client=_PassingJudgeClient())
@@ -202,12 +204,16 @@ def run_demo(target: Path, quiet: bool = False) -> dict[str, Any]:
     for r in fx.rejected:
         say(f"   rejected '{r['approach']}': {'; '.join(r['reasons'])}")
     from .cli import write_report
+    from .studio import render_studio_html
 
     report, _ = write_report(store, cfg, fx.final_run)
+    studio_html = target / "studio.html"
+    studio_html.write_text(render_studio_html(cfg, store))
     say(f"\n   healed code:  {target / 'src' / 'pricing.py'}")
     say(f"   harness2 dir: {target / 'harnesses' / 'harness2'}")
     say(f"   harness now:  {cfg.path(cfg['fixer']['editable'][0])}")
     say(f"   fix log:      {store.root / 'fixlog.md'}")
     say(f"   lessons:      {cfg.path('lessons/LESSONS.md')}")
     say(f"   report:       {report}")
-    return {"fix": fx, "heal": heal_out, "report": report, "store": store}
+    say(f"   apple studio: {studio_html}")
+    return {"fix": fx, "heal": heal_out, "report": report, "studio": studio_html, "store": store}
