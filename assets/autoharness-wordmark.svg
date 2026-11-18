@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 560 112" width="420" role="img" aria-label="AutoHarness²">
+  <defs>
+    <linearGradient id="iconBg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0f172a"/>
+      <stop offset="100%" stop-color="#1e293b"/>
+    </linearGradient>
+  </defs>
+  <rect x="0" y="0" width="560" height="112" rx="18" fill="#ffffff" stroke="#e2e8f0" stroke-width="1.5"/>
+  <!-- Icon mark -->
+  <g transform="translate(22, 14) scale(0.66)">
+    <rect x="6" y="6" width="116" height="116" rx="28" fill="url(#iconBg)"/>
+    <path d="M 64 24 A 40 40 0 0 1 101 49" fill="none" stroke="#4285F4" stroke-width="8" stroke-linecap="round"/>
+    <polygon points="106,57 93,49 106,42" fill="#4285F4"/>
+    <path d="M 101 79 A 40 40 0 0 1 64 104" fill="none" stroke="#34A853" stroke-width="8" stroke-linecap="round"/>
+    <polygon points="56,104 67,97 66,111" fill="#34A853"/>
+    <path d="M 64 104 A 40 40 0 0 1 27 79" fill="none" stroke="#FBBC04" stroke-width="8" stroke-linecap="round"/>
+    <polygon points="22,71 35,79 22,86" fill="#FBBC04"/>
+    <path d="M 27 49 A 40 40 0 0 1 64 24" fill="none" stroke="#EA4335" stroke-width="8" stroke-linecap="round"/>
+    <polygon points="72,24 61,31 62,17" fill="#EA4335"/>
+    <rect x="44" y="44" width="40" height="40" rx="10" fill="#1e293b" stroke="#cbd5e1" stroke-width="2.5"/>
+    <polygon points="64,51 77,64 64,77 51,64" fill="#4285F4"/>
+    <circle cx="64" cy="64" r="4.5" fill="#ffffff"/>
+  </g>
+  <!-- Wordmark typography -->
+  <text x="122" y="68" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, Helvetica, Arial, sans-serif" font-size="48" font-weight="800" letter-spacing="-1.2" fill="#0f172a">
+    Auto<tspan fill="#1a73e8">Harness</tspan>
+  </text>
+  <!-- Superscript 2 badge -->
+  <rect x="415" y="24" width="30" height="30" rx="8" fill="#e8f0fe" stroke="#4285F4" stroke-width="1.5"/>
+  <text x="430" y="46" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, sans-serif" font-size="20" font-weight="800" fill="#1a73e8">2</text>
+  <!-- Subtle accent bar -->
+  <rect x="124" y="82" width="76" height="4" rx="2" fill="#4285F4"/>
+  <rect x="206" y="82" width="76" height="4" rx="2" fill="#EA4335"/>
+  <rect x="288" y="82" width="76" height="4" rx="2" fill="#FBBC04"/>
+  <rect x="370" y="82" width="76" height="4" rx="2" fill="#34A853"/>
+</svg>

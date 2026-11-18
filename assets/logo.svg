@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128" role="img" aria-label="AutoHarness Logo">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0f172a"/>
+      <stop offset="100%" stop-color="#1e293b"/>
+    </linearGradient>
+  </defs>
+  <rect x="6" y="6" width="116" height="116" rx="28" fill="url(#bgGrad)" stroke="#334155" stroke-width="2"/>
+  <!-- Outer recursive harness loop -->
+  <path d="M 64 24 A 40 40 0 0 1 101 49" fill="none" stroke="#4285F4" stroke-width="7" stroke-linecap="round"/>
+  <polygon points="105,56 93,49 105,43" fill="#4285F4"/>
+  <path d="M 101 79 A 40 40 0 0 1 64 104" fill="none" stroke="#34A853" stroke-width="7" stroke-linecap="round"/>
+  <polygon points="57,104 67,98 66,110" fill="#34A853"/>
+  <path d="M 64 104 A 40 40 0 0 1 27 79" fill="none" stroke="#FBBC04" stroke-width="7" stroke-linecap="round"/>
+  <polygon points="23,72 35,79 23,85" fill="#FBBC04"/>
+  <path d="M 27 49 A 40 40 0 0 1 64 24" fill="none" stroke="#EA4335" stroke-width="7" stroke-linecap="round"/>
+  <polygon points="71,24 61,30 62,18" fill="#EA4335"/>
+  <!-- Frozen core model diamond + harness frame -->
+  <rect x="44" y="44" width="40" height="40" rx="10" fill="#1e293b" stroke="#94a3b8" stroke-width="2.5"/>
+  <polygon points="64,51 77,64 64,77 51,64" fill="#4285F4" opacity="0.95"/>
+  <circle cx="64" cy="64" r="4.5" fill="#ffffff"/>
+</svg>

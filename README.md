@@ -1,188 +1,188 @@
-# AutoHarness
+<h3 align="center">
+  <img src="assets/autoharness-wordmark.svg" alt="AutoHarness²" width="400"><br>
+  Autonomous Agent Harnessing &amp; Continuous Self-Healing Loop
+</h3>
 
-[![CI](https://github.com/pritampanda15/autoharness/actions/workflows/ci.yml/badge.svg)](https://github.com/pritampanda15/autoharness/actions/workflows/ci.yml)
-[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
-![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)
+<p align="center">
+  <a href="https://github.com/pritampanda15/autoharness/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/pritampanda15/autoharness/ci.yml?branch=main&label=CI&color=4285F4&logo=githubactions&logoColor=white" alt="CI"></a>
+  <a href="docs/ARCHITECTURE.md"><img src="https://img.shields.io/badge/Docs-Architecture%20%26%20Guides-FBBC04" alt="Architecture & Guides"></a>
+  <a href="pyproject.toml"><img src="https://img.shields.io/badge/Python-3.10%2B-EA4335?logo=python&logoColor=white" alt="Python 3.10+"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache%202.0-34A853" alt="License"></a>
+</p>
 
-**Autonomous Harness² Engineering & Continuous Code + Context Self-Healing Loop.**
+<p align="center">
+  <a href="#install">
+    <img src="assets/autoharness-terminal.svg" alt="Install, run the offline code-healing and Propose-Probe-Compose demo, and launch the continuous watch loop." width="680">
+  </a>
+</p>
 
-$$\text{Reliable Agent} = \text{Frozen Model} + \text{Self-Improving Harness}$$
+A **harness** is the software system around a model that enables it to act as a reliable agent: prompts, guardrails, memory, skills, tool guidance, scripts, subagents, and runtime middleware. **Harness engineering** is the discipline of designing, evaluating, and optimizing that system.
 
-**Harness Engineering** is the discipline of designing, evaluating, and evolving everything surrounding a foundation model: system instructions, guardrails, working memory, procedural skills, tool guidance, helper scripts, subagent verification protocols, and runtime middleware.
+**AutoHarness** is a plug-and-play framework for **autonomous agent harnessing and continuous self-healing** inspired by [Google Research's Harness²](https://github.com/google-research/harness2). Rather than relying on manual trace inspection or prompt babysitting whenever new or legacy code changes, AutoHarness connects **autonomous code healing** with **two levels of harness recursion** while keeping model weights fixed:
 
-Traditionally, context design and agent evaluation require constant human babysitting: manually writing test cases, manually inspecting failed traces, and manually tweaking prompts or fixing regressions whenever new or legacy code changes.
+* **Task & code-level recursion** scans newly written and existing code (`AST` + imports + `pytest`), repairs failing modules inside isolated sandboxes (with byte-for-byte test protection), and refines the active harness via a contrastive **Propose–Probe–Compose** step — keeping an edit only when **hidden holdout cases** and cost gates agree it helped.
+* **Harnessing-level recursion** updates a persistent *Lesson Ledger* (`lessons/lessons.json` & `LESSONS.md`) and live codebase memory (`memory.md`) with empirically validated `DO` and `AVOID` priors to guide future sessions.
 
-**AutoHarness** closes that entire loop automatically — combining recursive **Harness²** optimization (inspired by [google-research/harness2](https://github.com/google-research/harness2)) with **continuous code & harness self-healing** and **zero-intervention grounded evaluation**:
+<p align="center">
+  <a href="assets/autoharness_pipeline.svg">
+    <img src="assets/autoharness_pipeline.svg" alt="AutoHarness pipeline. Top: Task and code-level recursion executes AST/pytest healing and layered grading, proposes invariant/skill/guardrail edits, probes candidates in isolated sandboxes, and composes contrasts gated by hidden holdout cases. Bottom: Harnessing-level recursion reflects session evidence into the persistent Lesson Ledger." width="100%">
+  </a>
+</p>
 
-- **Every time new or existing code is written** (`autoharness watch`, `autoharness heal`, or Git hooks), AutoHarness scans AST/imports/tests, synthesizes executable verification cases, repairs broken modules inside isolated sandboxes (while write-protecting test files!), and refreshes architectural memory.
-- **Every time a harness or agent behavior regresses**, AutoHarness proposes diverse candidate edits across the **8-Component Harness² Tree**, probes each in parallel isolated workspaces, composes winning behavioral contrasts, gates against **hidden holdout cases**, and distills evidence-backed lessons into a persistent ledger.
-- **Zero manual validation bottlenecks**: layered deterministic → behavioral trace → **evidence-grounded autonomous self-verification** certifies objective, artifact-backed runs automatically without waiting on human lookup.
+Evaluations run cheapest-first — **deterministic checks → behavioral trace checks → evidence-grounded autonomous judge** — so objective checks cost zero tokens and unanimous, artifact-grounded verdicts auto-certify without waiting on manual human lookup.
 
-```
-  New or existing code / harness component saved (or committed)
-                               │
-                               ▼
-  ┌────────────────────────────────────────────────────────────┐
-  │ 1. DISCOVER & SELF-HEAL CODE (`healer` + `synthesizer`)    │
-  │    • AST syntax + import + unit test scan (`code_paths`)   │
-  │    • Auto-synthesize dev & holdout YAML eval cases         │
-  │    • Repair failing modules in isolated copy (tests locked)│
-  │    • Sync live codebase map -> Harness² `memory.md`        │
-  └────────────────────────────┬───────────────────────────────┘
-                               │
-                               ▼
-  ┌────────────────────────────┐   pass   ┌────────────────────┐
-  │ 2. EVALUATE HARNESS SUITE  │ ───────▶ │ GATE vs BASELINE   │──▶ promote baseline
-  │    Deterministic → Trace → │          └────────────────────┘
-  │    Autonomous Grounding    │   fail
-  └────────────────────────────┘ ───────▶ ┌──────────────────────────────────────────────┐
-               ▲                          │ 3. HARNESS² CONTRASTIVE REFINEMENT (`fixer`) │
-               │                          │    • Propose K candidates (Invariant /       │
-               │                          │      Skill / Guardrail across 8 components)  │
-               │                          │    • Static anti-overfitting guard           │
-               │                          │    • Probe in parallel isolated workspaces   │
-               │                          │    • Compose winning per-case contrasts      │
-               │                          │    • Gate on hidden holdout cases + cost     │
-               │                          │    • Reflect DO / AVOID priors -> LESSONS.md │
-               │                          └──────────────────────┬───────────────────────┘
-               └─────────────────────────────────────────────────┘
-                         kept winner applied atomically, or byte-for-byte revert
-```
+The release supports **parallel and sequential recursion**, **8-component Harness² trees and single-file prompts**, **Claude Code, Anthropic, Gemini, and OpenAI/Ollama substrates**, and **continuous file-watching and Git commit hooks**.
 
----
+## Contents
 
-## Quickstart
+- [Harness components](#harness-components)
+- [Install](#install)
+- [Continuous self-healing loop](#continuous-self-healing-loop)
+- [Experiments and recursion modes](#experiments-and-recursion-modes)
+- [Layered grading and autonomous certification](#layered-grading-and-autonomous-certification)
+- [Safety and anti-gaming guardrails](#safety-and-anti-gaming-guardrails)
+- [Results, reports, and calibration](#results-reports-and-calibration)
+- [Citation](#citation)
+- [Contributing](#contributing)
+- [License](#license)
+
+## Harness components
+
+AutoHarness exposes eight editable components around the frozen model: **system prompt, guardrails, working memory, procedural skills, tool guidance, helper scripts, subagents, and middleware plugins**. Together they govern context construction, the tool interface, work delegation, and deterministic behavior inside the tool loop.
+
+<p align="center">
+  <a href="assets/components.svg">
+    <img src="assets/components.svg" alt="Eight editable harness components grouped by runtime role: system prompt, guardrails, memory, and skills construct context; tool guidance and scripts define the tool interface; subagents orchestrate verification; plugins enforce deterministic middleware." width="100%">
+  </a>
+</p>
+
+Single-file harnesses (`harnesses/claude-code/system.md`) work out of the box; scaffold or inspect a full 8-component directory anytime with `autoharness tree --init harnesses/harness2`.
+
+## Install
+
+Use **Python 3.10+** (with [`uv`](https://docs.astral.sh/uv/) or `pip`). From the repository root:
 
 ```bash
-pip install git+https://github.com/pritampanda15/autoharness.git
-```
-
-### 1. Run the Full Offline Demo (No API Keys Needed)
-See autonomous code self-healing + Harness² `Propose → Probe → Compose` + hidden holdout gating run end-to-end in ~2 seconds:
-
-```bash
+git clone https://github.com/pritampanda15/autoharness.git
+cd autoharness
+pip install -e '.[dev]'
 autoharness demo
 ```
 
-### 2. Initialize Your Project
-Scaffolds `autoharness.yaml`, an **8-component Harness² directory** (`harnesses/harness2/`), and starter golden cases:
+The local demo runs completely offline with no API keys required: it repairs a buggy Python module in an isolated sandbox, executes a 3-candidate **Propose–Probe–Compose** harness step with real sandboxed checks, blocks overfitting and holdout regressions, and writes the HTML report and lesson ledger in ~2 seconds.
+
+For live runs:
+- **Zero API key (default):** Uses your local **Claude Code** login (`autoharness.yaml`) as the agent, judge, and fixer.
+- **Direct API substrates:** Set `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, or `OPENAI_API_KEY` and pass `--config autoharness.api.yaml` (or set `agent.type: gemini | openai | claude`).
+
+See the [configuration reference](docs/CONFIG.md) for substrate settings and budget controls.
+
+## Continuous self-healing loop
+
+Initialize a project, inspect the 8-component Harness² tree, establish your baseline, and leave the closed loop watching both your source code (`code_paths`) and your harness:
 
 ```bash
-autoharness init my-agent && cd my-agent
+autoharness init my-project && cd my-project
 autoharness tree harnesses/harness2
+autoharness run --autonomous --open
+autoharness watch --now
 ```
 
-### 3. Continuous Loop on Code & Harness Changes
-Watch your source directories (`code_paths`) and harness components simultaneously — every save or Git commit evaluates and heals automatically:
+Every time new or legacy code (or a harness file) is saved or committed, AutoHarness runs automatically:
 
 ```bash
-# Continuous background watcher: heal code -> run evals -> gate -> auto-fix harness
-autoharness watch --now
+# Auto-generate dev & holdout YAML eval cases from existing or newly written Python modules
+autoharness synthesize src/
 
-# Or install as an automatic Git pre-commit hook:
+# One-shot autonomous code repair + memory.md sync + harness regression gate
+autoharness heal src/ --with-harness
+
+# Or enforce automatically on every Git commit
 autoharness hook install --kind pre-commit
 ```
 
-### 4. One-Shot Codebase Scan, Case Synthesis & Self-Healing
-Point AutoHarness at any new or legacy codebase to synthesize evaluation cases and heal failing modules on demand:
+| Workflow | Command | Guide |
+|---|---|---|
+| Continuous Watcher | `autoharness watch [--now] [--no-fix]` | [Architecture](docs/ARCHITECTURE.md) |
+| Code Self-Healing | `autoharness heal [PATHS...] [--changed]` | [Architecture](docs/ARCHITECTURE.md) |
+| Auto-Case Synthesis | `autoharness synthesize [PATHS...]` | [Writing Cases](docs/CASES.md) |
+| Session Failure Mining | `autoharness mine` / `autoharness auto` | [Writing Cases](docs/CASES.md) |
 
-```bash
-autoharness synthesize src/          # auto-generate dev + holdout YAML cases from AST & tests
-autoharness heal src/ --with-harness # repair broken modules safely + gate/fix the harness
+`ah` is installed as a short alias for `autoharness`.
+
+## Experiments and recursion modes
+
+Scale task-level harness optimization across two complementary dimensions: **parallel exploration** probes `K` diverse candidate harnesses (spanning *invariant reasoning*, *procedural skills*, and *guardrails*) simultaneously in isolated workspace copies and composes winning behavioral contrasts; **sequential refinement** carries accepted edits and rejected-attempt diagnostics across `max_iters` successive steps.
+
+<p align="center">
+  <a href="assets/recursion_modes.svg">
+    <img src="assets/recursion_modes.svg" alt="Two ways to scale task-level recursion. Parallel: probe K diverse candidate harnesses in isolated sandboxes and compose h* from measured per-case contrasts. Sequential: carry refined harnesses and failure evidence across N successive steps." width="100%">
+  </a>
+</p>
+<p align="center"><em>Parallel probing explores wider contrasts; sequential iterations refine deeper.</em></p>
+
+| Option / Config | Behavior |
+|---|---|
+| `fixer.candidates: K` | Propose `K` diverse candidate edits per step (invariant, skill, guardrail) |
+| `fixer.parallel: K` | Evaluate candidate probes concurrently in isolated temporary workspaces |
+| `fixer.compose: true` | Synthesize one merged candidate from measured per-case probe contrasts |
+| `fixer.max_iters: N` | Run up to `N` sequential Propose–Probe–Compose steps (`--max-iters N`) |
+| `--agent {claude,gemini,openai,command,scripted}` | Select execution substrate on any `run`, `heal`, or `auto` invocation |
+
+## Layered grading and autonomous certification
+
+Checks execute cheapest-and-most-certain first, skipping LLM judge calls whenever a deterministic or trace check has already failed:
+
+| Layer | Built-in Checks | Token Cost |
+|---|---|---|
+| **1. Deterministic** | `command` (`pytest`), `python_syntax`, `imports_clean`, `workspace_integrity`, `file_unchanged`, `json_valid`, regex | **0 (exact)** |
+| **2. Behavioral Trace** | `read_before_write`, `verified_after_edit`, `no_loops`, `must_not_call_tool`, `max_turns`, `max_tokens` | **0 (exact)** |
+| **3. Grounded Judge** | Multi-sample rubric voting (`samples: 3`) + **Autonomous Evidence Grounding** (`--autonomous`) | **Paid** |
+
+In `--autonomous` mode (`judge.autonomous: true`), an evidence-grounding verifier checks workspace AST/JSON/YAML validity, trace error recovery, and whether cited rubric evidence matches real workspace artifacts — auto-certifying unanimous, grounded runs with zero manual intervention. For human-in-the-loop auditing, `autoharness review` and `autoharness calibrate` track exact agreement and **Cohen's κ**.
+
+## Safety and anti-gaming guardrails
+
+An autonomous self-healing loop must never pass checks by gaming the evaluation:
+
+- **Write-protected tests & evals:** Code healing snapshots all test files (`test_*.py`, `tests/**`) beforehand and rejects any repair that alters or deletes a test. Harness fixing can only write paths listed in `fixer.editable`.
+- **Hidden holdout cases:** Cases marked `split: holdout` are never exposed to `propose()` or `compose()`, yet any holdout regression rejects the candidate immediately.
+- **Static leak filter:** Candidate edits pasting case IDs, filenames, or literal expected answers into the harness are blocked before any probe runs.
+- **Isolated sandboxes & atomic promotion:** Probes execute in throwaway workspace copies; real files are updated only when a candidate clears every gate (`max_token_increase_pct`, `max_growth_pct`, `max_usd_per_trigger`).
+
+Shell commands inside trials run in temporary directories with your OS user permissions; run untrusted third-party cases inside a container.
+
+## Results, reports, and calibration
+
+Artifacts are stored under `runs/`, including `BASELINE`, `fixlog.md` (with unified diffs for every accepted and rejected candidate), per-trial JSON traces, baseline diffs (`diff.json`), and self-contained light/dark HTML reports (`autoharness report --open`).
+
+Inspect learned priors anytime with `autoharness lessons`, compare runs with `autoharness diff`, or explore all flags via `autoharness <cmd> --help`.
+
+## Citation
+
+If you build on AutoHarness or recursive agent harnessing in your research or engineering workflows, please cite AutoHarness alongside the foundational Harness² paper:
+
+```bibtex
+@software{panda2026autoharness,
+  title   = {AutoHarness: Autonomous Agent Harnessing and Continuous Self-Healing Loop},
+  author  = {Panda, Pritam},
+  year    = {2026},
+  url     = {https://github.com/pritampanda15/autoharness}
+}
+
+@article{xu2026harness2,
+  title   = {Harness$^2$: Recursive Agent Harnessing for an Open World},
+  author  = {Xu, Ruiyao and Chen, Yanfei and CuiZhu, Zhongying and Dalvi Mishra, Bhavana and Ming, Yifei and Yu, Han and Han, Rujun and Lee, Chen-Yu and Pfister, Tomas},
+  journal = {arXiv preprint arXiv:2610.14224},
+  year    = {2026},
+  url     = {https://arxiv.org/abs/2610.14224}
+}
 ```
 
----
+## Contributing
 
-## The 8-Component Harness² Tree
+See [CONTRIBUTING.md](CONTRIBUTING.md).
 
-Inspired by [Google Research's Harness²](https://github.com/google-research/harness2), AutoHarness models an agent's software scaffolding as **8 modular, editable components** across **3 runtime spaces** (`autoharness tree`):
+## License
 
-| Space | Component | File | Runtime Role |
-|---|---|---|---|
-| **Context Construction** | `system` | `system.md` | Core identity, reasoning loop, and response contract |
-| **Context Construction** | `guardrails` | `guardrails.md` | Hard safety boundaries, non-destructive rules, and scope limits |
-| **Context Construction** | `memory` | `memory.md` | Live codebase architecture map & working-memory schema |
-| **Context Construction** | `skills` | `skills.md` | Procedural playbooks (debugging, refactoring, concise Q&A) |
-| **Tool & Interface** | `tool_guidance` | `tool_guidance.md` | Tool selection rules, read-before-edit discipline, shell usage |
-| **Tool & Interface** | `scripts` | `scripts.md` + `scripts/*` | Executable helper utilities staged into `.harness/scripts/` |
-| **Delegation & Middleware** | `subagents` | `subagents.md` | Decomposition & adversarial self-verification personas |
-| **Delegation & Middleware** | `plugins` | `plugins.json` | Deterministic pre-tool blockers & post-tool verification hooks |
-
-> Single-file harnesses (`harnesses/default/system.md`) remain 100% supported — upgrade to a full 8-component tree anytime with `autoharness tree --init harnesses/harness2`.
-
----
-
-## Zero-Intervention Layered Evaluation
-
-Trials are graded cheapest-and-most-objective first:
-
-| Layer | Examples | Cost |
-|---|---|---|
-| **1. Deterministic** | `command` (`pytest`), `python_syntax` (AST), `imports_clean`, `workspace_integrity`, `file_unchanged`, `json_valid`, regex | **Free & exact** |
-| **2. Behavioral Trace** | `read_before_write`, `verified_after_edit`, `no_loops`, `must_not_call_tool`, `max_turns`, `max_tokens` | **Free & exact** |
-| **3. Grounded Judge** | Multi-sample rubric voting + **Autonomous Evidence Grounding** (`--autonomous` / `judge.autonomous: true`) | **Paid (skipped if Layer 1/2 fails)** |
-
-When `autonomous` mode is enabled, AutoHarness cross-verifies every rubric criterion's cited evidence against workspace AST/JSON/YAML integrity, tool outputs, and file snapshots — automatically certifying unanimous, artifact-grounded runs without stalling on manual human labeling. When human calibration is desired, `autoharness review` and `autoharness calibrate` compute exact agreement and **Cohen's κ**.
-
----
-
-## Anti-Gaming & Safety Guardrails
-
-An autonomous fixer is only useful if it **cannot cheat the evaluation**:
-
-- **Write-Protected Tests & Cases**: During code healing (`healer.py`), test files (`test_*.py`, `tests/**`) are snapshotted beforehand and verified **byte-for-byte identical** afterward. During harness fixing (`loop.py`), only `fixer.editable` files can be touched.
-- **Hidden Holdout Split**: `split: holdout` cases are never shown to the fixer's `propose()` or `compose()` prompts, yet any drop on holdout cases immediately rejects the candidate.
-- **Static Leak Detection**: Candidate edits that paste case IDs, filenames, or expected literal answers into the harness are rejected *before* spending a single token running probes.
-- **Isolated Parallel Workspaces**: All probes and repairs run in throwaway temporary copies; real workspace files are updated atomically only after a candidate passes every gate.
-- **Cost & Bloat Caps**: Enforces `max_usd_per_trigger`, `max_iters`, `max_token_increase_pct`, and `max_growth_pct`.
-
----
-
-## Model-Agnostic Substrates
-
-Run and optimize harnesses around **any** model or CLI agent (`agent.type` / `fixer.backend`):
-
-- **`command` (Default — Zero API Key)**: Headless **Claude Code** (`claude -p`), Codex, OpenCode, or any custom CLI agent (`{prompt}`, `{workdir}`, `{system_prompt_file}`).
-- **`claude`**: Anthropic Messages API (`ANTHROPIC_API_KEY`).
-- **`gemini`**: Google Gemini API (`GEMINI_API_KEY`, zero extra dependencies).
-- **`openai`**: OpenAI, OpenRouter, vLLM, or local Ollama (`OPENAI_API_KEY` / `OPENAI_BASE_URL`).
-- **`scripted`**: Deterministic offline replay for CI smoke tests.
-
----
-
-## CLI Reference (`autoharness` / `ah`)
-
-| Command | Description |
-|---|---|
-| `autoharness init [DIR]` | Scaffold config, 8-component `harnesses/harness2/`, and example cases |
-| `autoharness demo` | Run offline code self-healing + Harness² `Propose → Probe → Compose` demo |
-| `autoharness watch [--now]` | Continuous closed loop on code & harness changes |
-| `autoharness heal [PATHS...]` | Scan source code, repair broken modules in isolated sandboxes, sync `memory.md` |
-| `autoharness synthesize [PATHS...]` | Auto-generate executable `dev` & `holdout` YAML eval cases from source code |
-| `autoharness run [--gate] [--autonomous]` | Run evaluation suite, diff against baseline, and render HTML report |
-| `autoharness fix [--retry]` | Run one multi-candidate Harness² contrastive fix session |
-| `autoharness tree [--init DIR]` | Inspect or scaffold an 8-component Harness² directory |
-| `autoharness hook {install,uninstall,status}` | Manage automatic Git `pre-commit` / `post-commit` hooks |
-| `autoharness mine` / `auto` | Mine real failure episodes from session logs / run hands-off CI pipeline |
-| `autoharness lessons` | Inspect persistent `DO` and `AVOID` engineering lessons |
-| `autoharness review` / `calibrate` | Optional human-in-the-loop labeling & Cohen's κ calibration |
-| `autoharness diff` / `baseline` / `report` / `cases` | Run inspection utilities |
-
----
-
-## Documentation
-
-- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — Dual-level recursion, module map, and data flow
-- [docs/CASES.md](docs/CASES.md) — Authoring & auto-synthesizing cases + full check reference
-- [docs/CONFIG.md](docs/CONFIG.md) — Complete `autoharness.yaml` reference
-- [CONTRIBUTING.md](CONTRIBUTING.md) — Development setup and offline testing guidelines
-
-## Acknowledgements & Inspiration
-
-Inspired by [Google Research's Harness² (`google-research/harness2`)](https://github.com/google-research/harness2) (*Recursive Agent Harnessing for an Open World*), extending recursive `Propose → Probe → Compose` harness refinement and persistent lesson ledgers into a continuous, regression-gated code + harness engineering loop.
-
-## Author & License
-
-Created by **pritampanda15** (<pritampkp15@gmail.com>) · [github.com/pritampanda15/autoharness](https://github.com/pritampanda15/autoharness)
-
-Licensed under the [Apache License 2.0](LICENSE).
+AutoHarness is licensed under [Apache 2.0](LICENSE). © 2026 [pritampanda15](https://github.com/pritampanda15) (<pritampkp15@gmail.com>).
