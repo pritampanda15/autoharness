@@ -1,5 +1,6 @@
-# run artifacts (reports, traces) and per-user data
+# run artifacts (reports, traces), brag render outputs, and per-user data
 runs/
+brag-output*/
 labels/*.jsonl
 !labels/.gitkeep
 cases/mined/*.yaml
