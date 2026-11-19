@@ -456,3 +456,69 @@ def test_subscription_isolation_mcp_server_and_universal_plugin_installer(tmp_pa
     with Sandbox(case, 2) as sb2:
         r_py = sb2.run("python3 -m pytest --version", env={"PATH": "/usr/bin:/bin"})
         assert r_py.returncode == 0 and "pytest" in r_py.stdout.lower()
+
+
+def test_standalone_agensi_skills_audit_package_and_scripts(tmp_path):
+    import json
+    import subprocess
+    import sys
+    import zipfile
+    from autoharness.skills_packager import audit_skill_dir, default_skills_root, install_skills_for_agents, package_skills
+
+    sroot = default_skills_root()
+    pro_root = sroot.parent / "pro-skills"
+    out_dir = tmp_path / "agensi_dist"
+    manifest = package_skills(sroot, out_dir)
+    assert manifest["packaged"] >= 1
+    assert (out_dir / "autoharness.zip").exists()
+    assert (out_dir / "AGENSI_LISTINGS.md").exists()
+    assert (out_dir / "REPLY_TO_AGENSI.md").exists()
+
+    with zipfile.ZipFile(out_dir / "autoharness.zip") as zf:
+        assert "autoharness/SKILL.md" in zf.namelist()
+
+    # Verify security scanner blocks os.environ harvesting and shell=True
+    bad_skill = tmp_path / "bad-skill"
+    (bad_skill / "scripts").mkdir(parents=True)
+    (bad_skill / "SKILL.md").write_text("---\nname: bad\ndescription: d\nwhen_to_use: w\nallowed-tools: []\n---\n")
+    (bad_skill / "scripts" / "harvest.py").write_text("import os\nprint(os.environ)\n")
+    bad_audit = audit_skill_dir(bad_skill)
+    assert bad_audit["passed"] is False
+    assert any("environment variable" in x for x in bad_audit["issues"])
+
+    # When private `pro-skills/` exists locally on creator machine, verify all 4 commercial Pro CLIs end-to-end
+    if pro_root.is_dir():
+        assert manifest["packaged"] == 5
+        proj = tmp_path / "sample_repo"
+        (proj / "pkg").mkdir(parents=True)
+        (proj / "pkg" / "calc.py").write_text("def add(a: int, b: int) -> int:\n    return a + b\n")
+        (proj / "tests").mkdir()
+        (proj / "tests" / "test_calc.py").write_text("from pkg.calc import add\n\ndef test_add():\n    assert add(2, 3) == 5\n")
+
+        healer_py = pro_root / "autoharness-write-locked-healer" / "scripts" / "locked_healer.py"
+        locks_json = tmp_path / "locks.json"
+        ver_json = tmp_path / "verify.json"
+        assert subprocess.run([sys.executable, str(healer_py), "snapshot", "--root", str(proj), "--output", str(locks_json)], check=False).returncode == 0
+        assert subprocess.run([sys.executable, str(healer_py), "verify", "--root", str(proj), "--locks", str(locks_json), "--output", str(ver_json)], check=False).returncode == 0
+        assert json.loads(ver_json.read_text())["verified"] is True
+
+        h2_py = pro_root / "autoharness-harness2-architect" / "scripts" / "harness2_tool.py"
+        h2_dir = proj / "harnesses" / "harness2"
+        assert subprocess.run([sys.executable, str(h2_py), "scaffold", "--dir", str(h2_dir), "--output", str(tmp_path / "sc.json")], check=False).returncode == 0
+        assert subprocess.run([sys.executable, str(h2_py), "sync-memory", "--root", str(proj), "--harness", str(h2_dir), "--output", str(tmp_path / "mem.json")], check=False).returncode == 0
+        assert "calc.py" in (h2_dir / "memory.md").read_text()
+
+        ev_py = pro_root / "autoharness-eval-loop" / "scripts" / "eval_engine.py"
+        cases_dir = proj / "cases" / "auto"
+        assert subprocess.run([sys.executable, str(ev_py), "synthesize", "--root", str(proj), "--out", str(cases_dir), "--output", str(tmp_path / "sy.json")], check=False).returncode == 0
+        assert subprocess.run([sys.executable, str(ev_py), "grade", "--cases", str(cases_dir), "--workspace", str(proj), "--output", str(tmp_path / "gr.json")], check=False).returncode == 0
+        assert json.loads((tmp_path / "gr.json").read_text())["pass_rate"] == 1.0
+
+        co_py = pro_root / "autoharness-contrastive-optimizer" / "scripts" / "contrastive_guard.py"
+        assert subprocess.run(
+            [sys.executable, str(co_py), "record-lesson", "--ledger", str(proj / "lessons" / "lessons.json"), "--polarity", "do", "--lesson", "Keep tests locked.", "--output", str(tmp_path / "ls.json")],
+            check=False,
+        ).returncode == 0
+
+    installed = install_skills_for_agents(sroot, tmp_path / "ws_agents", target="all")
+    assert len(installed) >= 8

@@ -221,6 +221,10 @@ For any other MCP-compatible client (**Windsurf**, **Cline**, **Zed**, **Continu
 | `autoharness://harness/compiled` | MCP resource serving the live compiled 8-component Harness² prompt |
 | `autoharness://lessons/ledger` | MCP resource serving the structured JSON Lesson Ledger |
 
+### Companion Agent Skill (`skills/autoharness`) & Pro Skill Packs
+
+AutoHarness includes the open-source companion skill [`skills/autoharness/SKILL.md`](skills/autoharness/SKILL.md) compatible with Claude Code, Cursor, GitHub Copilot, Codex CLI, Gemini CLI, Windsurf, OpenCode, and Antigravity — plus a built-in `SKILL.md` security auditor & `.zip` packager (`autoharness skills {list,audit,package,install}`). Standalone zero-dependency Pro Skill Packs (*Write-Locked Code Healer*, *8-Component Harness² Architect*, *3-Layer Agent Eval Loop*, and *Contrastive Harness Optimizer*) are available on **Agensi.io**.
+
 ## Experiments and recursion modes
 
 Scale task-level harness optimization across two complementary dimensions: **parallel exploration** probes `K` diverse candidate harnesses (spanning *invariant reasoning*, *procedural skills*, and *guardrails*) simultaneously in isolated workspace copies and composes winning behavioral contrasts; **sequential refinement** carries accepted edits and rejected-attempt diagnostics across `max_iters` successive steps.

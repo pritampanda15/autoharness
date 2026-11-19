@@ -38,8 +38,11 @@ LOGO_SVG = """<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" v
 """
 
 SKILL_MD = """---
-name: autoharness
-description: Autonomous 8-component Harness² engineering, code AST/import/pytest self-healing with byte-locked unit tests, contrastive Propose-Probe-Compose harness repair, and 3-layer evaluation via AutoHarness MCP tools and CLI. Use when testing, healing broken modules, synthesizing eval cases, inspecting Harness² files, or preventing regressions.
+name: "autoharness"
+description: "Autonomous 8-component Harness² engineering, code AST/import/pytest self-healing with byte-locked unit tests, contrastive Propose-Probe-Compose harness repair, and 3-layer evaluation via AutoHarness MCP tools and CLI. Use when testing, healing broken modules, synthesizing eval cases, inspecting Harness² files, or preventing regressions."
+when_to_use: "Trigger when the user wants full closed-loop AutoHarness self-healing, MCP agent verification, flat-rate subscription routing ($0 API), or the Apple Liquid Glass Studio workbench."
+allowed-tools: ["bash", "read_file", "write_file", "edit_file", "list_files"]
+version: "0.3.0"
 ---
 
 # AutoHarness Skill & MCP Agent Guide
@@ -97,11 +100,18 @@ def install_plugin_target(
 
     for t in targets:
         if t == "antigravity":
+            from .skills_packager import FORBIDDEN_DIRS, discover_skill_dirs
+
             pdir = (antigravity_plugins_dir or (Path.home() / ".gemini" / "config" / "plugins")) / "autoharness"
             (pdir / "assets").mkdir(parents=True, exist_ok=True)
             (pdir / "skills" / "autoharness").mkdir(parents=True, exist_ok=True)
             (pdir / "assets" / "logo.svg").write_text(LOGO_SVG)
             (pdir / "skills" / "autoharness" / "SKILL.md").write_text(SKILL_MD)
+            for child in discover_skill_dirs(ws):
+                dst_skill = pdir / "skills" / child.name
+                if dst_skill.exists():
+                    shutil.rmtree(dst_skill)
+                shutil.copytree(child, dst_skill, ignore=shutil.ignore_patterns(*FORBIDDEN_DIRS, ".DS_Store"))
             cmd, args = resolve_mcp_command()
             (pdir / "mcp_config.json").write_text(json.dumps({
                 "mcpServers": {

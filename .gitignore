@@ -1,6 +1,7 @@
-# run artifacts (reports, traces), brag render outputs, and per-user data
+# run artifacts (reports, traces), brag render outputs, private pro skills, and per-user data
 runs/
 brag-output*/
+pro-skills/
 labels/*.jsonl
 !labels/.gitkeep
 cases/mined/*.yaml

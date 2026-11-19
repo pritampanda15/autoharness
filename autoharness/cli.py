@@ -530,6 +530,55 @@ def cmd_plugin(args) -> int:
     return 0
 
 
+def cmd_skills(args) -> int:
+    from .skills_packager import (
+        SKILL_CATALOG,
+        audit_skill_dir,
+        default_skills_root,
+        discover_skill_dirs,
+        install_skills_for_agents,
+        package_skills,
+    )
+
+    ws = Path(args.dir).resolve()
+    sroot = default_skills_root(ws)
+    discovered = discover_skill_dirs(ws)
+    if args.action == "list":
+        print(f"AutoHarness Skill Catalog ({len(discovered)} local folder(s) found):")
+        present = {d.name for d in discovered}
+        for m in SKILL_CATALOG:
+            loc = "ready" if m["slug"] in present else "pro-only"
+            print(f"  {m['slug']:<36} {m['suggested_price']:<16} [{loc}] {m['title']}")
+        return 0
+
+    if args.action == "audit":
+        ok_all = True
+        for sdir in discovered:
+            res = audit_skill_dir(sdir)
+            mark = "PASS (8/8)" if res["passed"] else "FAIL"
+            print(f"  {mark:<12} {sdir.name:<36} ({res['files']} files, {res['bytes']} bytes)")
+            for issue in res["issues"]:
+                print(f"    ! {issue}")
+            ok_all = ok_all and res["passed"]
+        return 0 if ok_all else 1
+
+    if args.action == "install":
+        installed = install_skills_for_agents(sroot, Path(args.dir).resolve(), target=args.agent_target, global_scope=args.global_scope)
+        print(f"installed {len(installed)} skill folder(s) for `{args.agent_target}`:")
+        for p in installed[:15]:
+            print(f"  {p}")
+        return 0
+
+    out_dir = Path(args.out).resolve()
+    manifest = package_skills(sroot, out_dir)
+    print(f"packaged {manifest['packaged']} Agensi.io-ready skill ZIP(s) -> {out_dir}")
+    for z in manifest["archives"]:
+        print(f"  {z}")
+    print(f"  listing kit: {out_dir / 'AGENSI_LISTINGS.md'}")
+    print(f"  reply draft: {out_dir / 'REPLY_TO_AGENSI.md'}")
+    return 0
+
+
 def cmd_studio(args) -> int:
     from .studio import render_studio_html, serve_studio
 
@@ -693,6 +742,18 @@ def main(argv: list[str] | None = None) -> int:
     )
     plg.add_argument("--dir", default=".", help="workspace directory for project-scoped MCP/skill files")
     plg.set_defaults(fn=cmd_plugin)
+
+    sk = sub.add_parser("skills", help="list, security-audit, install, or package standalone SKILL.md ZIPs for Agensi.io & 20+ agents")
+    sk.add_argument("action", nargs="?", choices=["list", "audit", "package", "install"], default="package")
+    sk.add_argument("--out", default="dist/agensi", help="output directory for Agensi.io .zip bundles (default: dist/agensi)")
+    sk.add_argument("--dir", default=".", help="workspace root")
+    sk.add_argument(
+        "--agent-target",
+        choices=["claude", "cursor", "copilot", "codex", "gemini", "antigravity", "windsurf", "opencode", "all"],
+        default="all",
+    )
+    sk.add_argument("--global", dest="global_scope", action="store_true", help="install into user-level ~/.<agent>/skills/")
+    sk.set_defaults(fn=cmd_skills)
 
     args = p.parse_args(argv)
     return args.fn(args)

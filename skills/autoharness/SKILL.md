@@ -1,15 +1,18 @@
 ---
-name: autoharness
-description: Autonomous 8-component Harness² engineering, code AST/import/pytest self-healing with byte-locked unit tests, contrastive Propose-Probe-Compose harness repair, and 3-layer evaluation via AutoHarness MCP tools and CLI. Use when testing, healing broken modules, synthesizing eval cases, inspecting Harness² files, or preventing regressions.
+name: "autoharness"
+description: "Autonomous 8-component Harness² engineering, code AST/import/pytest self-healing with byte-locked unit tests, contrastive Propose-Probe-Compose harness repair, and 3-layer evaluation via AutoHarness MCP tools and CLI. Use when testing, healing broken modules, synthesizing eval cases, inspecting Harness² files, or preventing regressions."
+when_to_use: "Trigger when the user wants full closed-loop AutoHarness self-healing, MCP agent verification, flat-rate subscription routing ($0 API), or the Apple Liquid Glass Studio workbench."
+allowed-tools: ["bash", "read_file", "write_file", "edit_file", "list_files"]
+version: "0.3.0"
 ---
 
-# AutoHarness Skill & MCP Agent Guide
+# AutoHarness Complete Suite & MCP Agent Skill
 
-AutoHarness turns any AI coding assistant or subscription model into a **closed-loop, anti-gaming self-healing engineer**.
+AutoHarness turns any AI coding assistant, local open-source model, or flat-rate subscription into a **closed-loop, anti-gaming self-healing engineer**.
 
 ## Core Workflow (Zero Extra API Keys)
 
-When AutoHarness MCP (`autoharness_mcp`) is connected, drive repairs directly with your own host model session:
+When AutoHarness MCP (`autoharness_mcp`) or CLI is available, drive repairs directly with your host model session:
 
 1. **Snapshot Test Locks First (`autoharness_snapshot_test_locks`)**:
    Capture SHA-256 digests of all `test_*.py` files before touching source code.
@@ -26,5 +29,6 @@ When AutoHarness MCP (`autoharness_mcp`) is connected, drive repairs directly wi
 
 - `autoharness studio` — Launch the Apple Liquid Glass visual workbench + 1-click `Auto-Fix`
 - `autoharness heal --with-harness` — Scan & heal broken modules + run contrastive harness fixing
-- `autoharness models` — Inspect or switch across Flat-Rate Subscriptions (`Claude Pro/Max`, `ChatGPT Plus/Codex`, `Google AI Pro/Gemini`, `Copilot`) and Open-Source (`Ollama`, `vLLM`, `LM Studio`)
-- `autoharness mcp` — Start the JSON-RPC 2.0 MCP stdio server
+- `autoharness models --use subscription-pool` — Switch across Flat-Rate Subscriptions (`Claude Pro/Max`, `ChatGPT Plus/Codex`, `Google AI Pro/Gemini`, `Copilot`) and Open-Source (`Ollama`, `vLLM`, `LM Studio`)
+- `autoharness plugin install --target all` — Install MCP + skills across Antigravity, Claude Code, Cursor, VS Code Copilot, Gemini CLI, and Codex CLI
+- `autoharness skills package` — Audit & bundle standalone `.zip` skill packages for Agensi.io and 20+ agents
