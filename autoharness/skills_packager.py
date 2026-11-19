@@ -22,6 +22,7 @@ SKILL_CATALOG: list[dict[str, Any]] = [
         "title": "AutoHarness — Autonomous Agent Eval & Self-Healing Hub",
         "tier": "Free (Lead Magnet / Open-Source Companion)",
         "suggested_price": "$0 (Free)",
+        "agensi_url": "https://agensi.io/skills/autoharness-autonomous-agent-eval-self-healing-hub",
         "category": "Agent Engineering & Testing",
         "tags": ["agent-harness", "self-healing", "mcp", "evals", "tdd"],
         "pitch": "Connects any coding agent to the AutoHarness 9-tool MCP server, flat-rate subscription router ($0 API), and Apple Liquid Glass Studio.",
@@ -30,7 +31,8 @@ SKILL_CATALOG: list[dict[str, Any]] = [
         "slug": "autoharness-write-locked-healer",
         "title": "Write-Locked Code Healer — Anti-Gaming Pytest & Import Repair",
         "tier": "Standalone Pro Skill",
-        "suggested_price": "$19 one-time",
+        "suggested_price": "$9.99 one-time",
+        "agensi_url": "https://agensi.io/skills/write-locked-code-healer-anti-gaming-pytest-import-repair",
         "category": "Debugging & Automated Testing",
         "tags": ["pytest", "anti-gaming", "bugfix", "tdd", "sha256-locks", "python"],
         "pitch": "Stops AI agents from weakening or deleting unit tests to fake green builds. Enforces cryptographic SHA-256 locks on test files before & after AST/import/pytest repair.",
@@ -39,7 +41,8 @@ SKILL_CATALOG: list[dict[str, Any]] = [
         "slug": "autoharness-harness2-architect",
         "title": "8-Component Harness² Architect — Modular Prompt, Guardrail & Memory Compiler",
         "tier": "Standalone Pro Skill",
-        "suggested_price": "$29 one-time",
+        "suggested_price": "$9.99 one-time",
+        "agensi_url": "https://agensi.io/skills/8-component-harness-architect-modular-prompt-guardrail-memory-compiler",
         "category": "Agent Architecture & Prompt Engineering",
         "tags": ["harness2", "system-prompt", "guardrails", "agent-memory", "claude-md", "cursor-rules"],
         "pitch": "Refactors bloated CLAUDE.md / AGENTS.md files into Google Research's 8-component Harness² topology with auto-synced live codebase symbol maps.",
@@ -48,7 +51,8 @@ SKILL_CATALOG: list[dict[str, Any]] = [
         "slug": "autoharness-eval-loop",
         "title": "3-Layer Agent Eval Loop — Case Synthesizer & Hidden Holdout Gate",
         "tier": "Standalone Pro Skill",
-        "suggested_price": "$39 one-time",
+        "suggested_price": "$9.99 one-time",
+        "agensi_url": "https://agensi.io/skills/3-layer-agent-eval-loop-case-synthesizer-hidden-holdout-gate",
         "category": "AI Evaluation & QA",
         "tags": ["agent-evals", "regression-gate", "holdout", "trace-grading", "pass-at-k"],
         "pitch": "Auto-synthesizes dev + secret holdout cases from source code and runs a cheapest-first Deterministic ($0) -> Behavioral Trace ($0) -> Rubric waterfall.",
@@ -57,7 +61,8 @@ SKILL_CATALOG: list[dict[str, Any]] = [
         "slug": "autoharness-contrastive-optimizer",
         "title": "Contrastive Harness Optimizer — Propose-Probe-Compose & Lesson Ledger",
         "tier": "Standalone Pro Skill",
-        "suggested_price": "$49 one-time",
+        "suggested_price": "$9.99 one-time",
+        "agensi_url": "https://agensi.io/skills/contrastive-harness-optimizer-propose-probe-compose-lesson-ledger",
         "category": "Self-Improving Agents & Prompt Optimization",
         "tags": ["prompt-optimization", "propose-probe-compose", "anti-overfitting", "agent-lessons"],
         "pitch": "Optimizes failing agent harnesses without overfitting using K=3 orthogonal probes, a $0 Static Leak & Bloat Shield, holdout rollback gates, and a DO/AVOID Lesson Ledger.",
@@ -250,23 +255,23 @@ def _render_listings_markdown(out_dir: Path) -> str:
         "## Recommended Monetization & Funnel Strategy",
         "",
         "- **Top-of-Funnel Free Listing:** Publish `autoharness.zip` as **Free ($0)** so developers searching Agensi (150k+ monthly visitors) install it immediately.",
-        "- **4 Standalone Pro Skills:** List each self-contained capability individually (`$19`–`$49`) **plus** offer a **$99 Complete AutoHarness Pro Suite Bundle** (30% off individual `$136` total).",
+        "- **4 Standalone Pro Skills:** Listed individually at **$9.99 one-time** each on Agensi.io.",
         "- **Affiliate Link (90% Share):** Share your Agensi creator affiliate link in your GitHub `README.md` and release notes so new signups earn **90% revenue share** + 20% for 6 months.",
         "",
-        "| ZIP Archive | Suggested Title | Suggested Price | Tags |",
+        "| ZIP Archive | Suggested Title | Price | Agensi Listing URL |",
         "|---|---|---|---|",
     ]
     for m in SKILL_CATALOG:
         lines.append(
-            f"| `{m['slug']}.zip` | **{m['title']}** | `{m['suggested_price']}` | `{', '.join(m['tags'])}` |"
+            f"| `{m['slug']}.zip` | **{m['title']}** | `{m['suggested_price']}` | {m['agensi_url']} |"
         )
     lines += [
         "",
-        "## Upload Steps (2 Minutes on Agensi.io)",
+        "## Live Agensi Creator Dashboard",
         "",
-        "1. Sign in at **https://www.agensi.io**, open **Creator Dashboard**, and enable **Creator Mode** (connect Stripe or USDC payouts).",
-        f"2. Upload each `.zip` from `{out_dir}` (or connect Agensi MCP and say *\"Publish these skills to Agensi\"* via `submit_skill`).",
-        "3. Copy your Creator Affiliate URL into `README.md` to capture the **90% net share** on direct referrals.",
+        "1. Manage listings & review status at **https://agensi.io/dashboard#my-skills**.",
+        f"2. Local `.zip` backups are stored in `{out_dir}`.",
+        "3. Copy your Creator Affiliate URL into `README.md` once approved (24–48h review) to capture the **90% net share** on direct referrals.",
         "",
     ]
     return "\n".join(lines)
@@ -275,23 +280,23 @@ def _render_listings_markdown(out_dir: Path) -> str:
 def _render_agensi_reply_markdown() -> str:
     return """# Ready-to-Send Reply to Agensi.io
 
-**Subject:** Re: AutoHarness — Packaged into 5 Standalone Skills (Free + 4 Exclusive Pro Skills) for Agensi.io
+**Subject:** Re: AutoHarness — All 5 Standalone Skills Submitted on Agensi.io!
 
 Hi [Name / Agensi Team],
 
 Thanks so much for reaching out and checking out AutoHarness!
 
-We went ahead and built an open-core **5-skill product line** specifically for Agensi.io — keeping **1 free companion skill** in our repo as an organic funnel while building **4 private, commercial standalone Pro skills** (not published on GitHub, each backed by self-contained Python stdlib CLI tools, `references/`, and verified clean against your 8-point security & anti-harvesting checks for Claude Code, Cursor, Copilot, Codex, Gemini, and 20+ agents):
+We went ahead and built an open-core **5-skill suite** specifically for Agensi.io and **submitted all 5 listings into your review queue** via the Agensi MCP server — keeping **1 free companion skill** as an organic funnel while building **4 exclusive commercial Pro skills** at **$9.99 each** (not published on GitHub, each backed by self-contained Python stdlib CLI tools, `references/`, and verified clean against your security checks for Claude Code, Cursor, Copilot, Codex, Gemini, and 20+ agents):
 
-1. **AutoHarness Hub (`autoharness.zip` — Free Lead-Magnet Skill)**: Connects any host agent to the 9-tool AutoHarness MCP server, flat-rate subscription router, and Studio workbench.
-2. **Write-Locked Code Healer (`autoharness-write-locked-healer.zip` — Paid Pro)**: Enforces cryptographic SHA-256 locks on unit tests before and after AST/import/`pytest` repair so agents can never pass builds by weakening assertions.
-3. **8-Component Harness² Architect (`autoharness-harness2-architect.zip` — Paid Pro)**: Scaffolds, compiles, and auto-syncs live codebase `memory.md` across the 8 modular Harness² runtime roles (`system.md`, `guardrails.md`, `memory.md`, `skills.md`, `tool_guidance.md`, `scripts/`, `subagents.md`, `plugins.json`).
-4. **3-Layer Agent Eval Loop (`autoharness-eval-loop.zip` — Paid Pro)**: Synthesizes stratified `dev` + secret `holdout` cases from source code and runs a cheapest-first Deterministic ($0) -> Behavioral Trace ($0) -> Rubric grading waterfall.
-5. **Contrastive Harness Optimizer (`autoharness-contrastive-optimizer.zip` — Paid Pro)**: Runs Propose–Probe–Compose prompt optimization with a $0 Static Leak & Bloat Shield, holdout rollback gate, and persistent `DO` / `AVOID` Lesson Ledger.
+1. **AutoHarness — Autonomous Agent Eval & Self-Healing Hub** (Free): https://agensi.io/skills/autoharness-autonomous-agent-eval-self-healing-hub
+2. **Write-Locked Code Healer — Anti-Gaming Pytest & Import Repair** ($9.99): https://agensi.io/skills/write-locked-code-healer-anti-gaming-pytest-import-repair
+3. **8-Component Harness² Architect — Modular Prompt, Guardrail & Memory Compiler** ($9.99): https://agensi.io/skills/8-component-harness-architect-modular-prompt-guardrail-memory-compiler
+4. **3-Layer Agent Eval Loop — Case Synthesizer & Hidden Holdout Gate** ($9.99): https://agensi.io/skills/3-layer-agent-eval-loop-case-synthesizer-hidden-holdout-gate
+5. **Contrastive Harness Optimizer — Propose-Probe-Compose & Lesson Ledger** ($9.99): https://agensi.io/skills/contrastive-harness-optimizer-propose-probe-compose-lesson-ledger
 
-I'm setting up our Creator Dashboard & affiliate link on Agensi.io now to upload all 5 `.zip` packages (plus a complete Pro bundle) and will add our Agensi affiliate badge directly to the top of our GitHub README — if you feature new agent-engineering launches in search or your newsletter, I'd love to coordinate!
+As soon as they clear the 24–48h review, we'll add our Agensi skill & affiliate links directly to the top of our GitHub README — if you feature new agent-engineering launches in search or your newsletter, we'd love to coordinate!
 
 Best regards,
-Pritam Panda
+Pritam Kumar Panda
 https://github.com/pritampanda15/autoharness
 """
